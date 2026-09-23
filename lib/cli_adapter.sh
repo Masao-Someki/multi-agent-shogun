@@ -270,6 +270,9 @@ build_cli_command() {
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
             fi
+            if [[ -n "$effort" ]]; then
+                cmd="$cmd -c model_reasoning_effort=\"$effort\""
+            fi
             cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             ;;
         opencode)
@@ -499,7 +502,7 @@ get_agent_model() {
 }
 
 # get_agent_effort(agent_id)
-# Claude CLI の --effort に渡す推論強度を返す。
+# Configured CLI に渡す推論強度を返す。
 # 未指定・不正値は空文字にして後方互換を維持する。
 get_agent_effort() {
     local agent_id="$1"

@@ -416,6 +416,22 @@ YAML
     [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
 }
 
+@test "build_cli_command: codex + effort → model_reasoning_effort override" {
+    cat > "${TEST_TMP}/settings_codex_effort.yaml" << 'YAML'
+cli:
+  default: codex
+  agents:
+    ashigaru1:
+      type: codex
+      model: gpt-6-luna
+      effort: medium
+YAML
+    load_adapter_with "${TEST_TMP}/settings_codex_effort.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
+    result=$(build_cli_command "ashigaru1")
+    [ "$result" = "codex --model gpt-6-luna -c model_reasoning_effort=\"medium\" --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
+}
+
 @test "build_cli_command: copilot → copilot --yolo" {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
     result=$(build_cli_command "ashigaru7")
