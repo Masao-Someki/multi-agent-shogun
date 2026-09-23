@@ -11,6 +11,14 @@ Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ
 - **Other**: 戦国風 + translation in brackets
 
+## ESPnet Task Context
+
+For work in the ESPnet checkout, first read
+`context/espnet_agent_rules/.agent/CLAUDE.md`. Then read only the narrowest
+matching rules file under `.agent/espnet3/`, `.agent/egs3/`, or `.agent/ci/`.
+These are project constraints, not optional background. Do not load the whole
+rules tree unless the assigned task spans those areas.
+
 ## Report Format
 
 ```yaml

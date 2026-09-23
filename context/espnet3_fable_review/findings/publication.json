@@ -1,0 +1,122 @@
+{
+  "area": "publication",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/publication/inference_model.py",
+      "espnet3/utils/publication_utils.py",
+      "espnet3/publication/demo/assets.py",
+      "espnet3/publication/demo/packing.py",
+      "espnet3/publication/demo/session.py",
+      "egs3/TEMPLATE/asr/src/app.py",
+      "egs3/TEMPLATE/asr/conf/publication.yaml",
+      "egs3/TEMPLATE/asr/conf/demo.yaml",
+      "test_utils/espnet3/publication/demo_test_model_pack_default/demo_test_provider.py",
+      "test_utils/espnet3/publication/demo_test_model_pack_default/meta.yaml",
+      "test/espnet3/utils/test_publish.py",
+      "test/espnet3/publication/test_inference_model.py",
+      "test/espnet3/demo/test_pack.py",
+      "test/espnet3/demo/test_app_builder.py",
+      "espnet3/systems/base/system.py (pack_model/upload_model/pack_demo/upload_demo entry points only)"
+    ],
+    "files_skimmed": [],
+    "files_not_read": [],
+    "tests_inspected": [
+      "test/espnet3/utils/test_publish.py",
+      "test/espnet3/publication/test_inference_model.py",
+      "test/espnet3/demo/test_pack.py",
+      "test/espnet3/demo/test_app_builder.py"
+    ],
+    "notes": "espnet3/systems/base/inference_provider.py (_convert_relative_paths_to_absolute, the already-known token_type/bpe path-rewrite bug) is out of this area's file list -- confirmed its location but did not re-analyze/duplicate it. Checked for path-traversal / size-limit / temp-cleanup issues in demo asset handling as called out in the task prompt: assets.py only builds Gradio component objects (gr.Audio/gr.Textbox) and never touches the filesystem with a Gradio-end-user-controlled filename; the only filesystem writes driven by config values (ui.description destination path in packing.py's _setup_demo_assets) are recipe-author-controlled build-time config, not runtime end-user input, so no path-traversal vector was found there -- verified OK, not a finding. Checked InferenceModel.forward_batch's duplicate-index handling (falls back to per-sample loop instead of silently losing dataset entries under duplicate indices) -- verified OK. Checked _get_bundled_module_names/_uses_bundled_code for a trust-gate bypass; concluded any config path missed by the top-level-only scan would fail to import anyway (bundle root is only added to sys.path inside the trusted branch), so it fails safe -- not a finding. Test coverage for publication_utils.py and inference_model.py is good and was used to confirm several behaviors are already covered (e.g. allow_overwrite rmtree semantics, artifact-outside-recipe-root rejection, schema_version handling); pack_demo's test file has no test that calls pack_demo twice into the same demo_dir, which is exactly the scenario that trips the symlink bug below."
+  },
+  "assumptions": [
+    "Assumed run.py / stage orchestration invokes pack_demo with CWD == recipe_root, matching the Path.cwd()-based path resolution used throughout demo/packing.py (consistent with how test fixtures use monkeypatch.chdir(tmp_path)).",
+    "Assumed training_config/inference_config/metrics_config passed into pack_model have already had OmegaConf interpolations resolved to literal absolute paths by the caller (as all pack_model tests construct them), for the training_config-path-leak finding."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/publication/demo/packing.py",
+      "lines": "232-280",
+      "category": "bug",
+      "severity": "high",
+      "summary": "pack_demo crashes with FileExistsError on the second run against the same demo_dir whenever the local model directory lives outside demo_dir, which is the default TEMPLATE layout.",
+      "scenario": "Using the unmodified egs3/TEMPLATE/asr/conf/demo.yaml (model.dir_or_tag: exp/${exp_tag}/model_pack, pack.out_dir defaults to exp/${exp_tag}/demo -- sibling directories), run `python run.py --stages pack_demo` once: pack_demo succeeds and _link_local_model_into_bundle creates demo_dir/model_pack as a symlink to the external model dir (packing.py:279 dest.symlink_to(candidate, ...)). Run `python run.py --stages pack_demo` again (e.g. after retraining, after fixing a typo in demo.yaml, or simply re-running the stage) with no config change: demo_dir.mkdir(parents=True, exist_ok=True) (packing.py:73) does not clean demo_dir, so the old model_pack symlink is still there, and the unconditional dest.symlink_to(...) call raises FileExistsError, aborting the whole pack_demo stage.",
+      "evidence": "packing.py:273-280: `dest = demo_dir / \"model_pack\"` then `dest.symlink_to(candidate, target_is_directory=True)` with no existence check on dest, while pack_demo (packing.py:73) only does `demo_dir.mkdir(parents=True, exist_ok=True)` -- unlike pack_model's out_dir which is shutil.rmtree'd on overwrite (publication_utils.py:562-568). Verified in isolation: calling Path.symlink_to() twice on the same dest raises `FileExistsError: [Errno 17] File exists`.",
+      "suggested_fix": "Before symlink_to, remove any pre-existing dest (`if dest.is_symlink() or dest.exists(): dest.unlink()` / rmtree for a non-symlink dest), mirroring pack_model's overwrite semantics; consider giving demo pack.yaml an allow_overwrite-style flag or always clearing demo_dir at the start of pack_demo the way pack_model does for out_dir.",
+      "confidence": 0.92,
+      "test_name": null,
+      "related_files": ["test/espnet3/demo/test_pack.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/publication/inference_model.py",
+      "lines": "440-530",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "InferenceModel.forward_batch has no way to pass extra model kwargs (e.g. beam_size), unlike forward(), which is an undocumented API asymmetry.",
+      "scenario": "A caller wants the same per-call override forward() explicitly supports (`model(sample, beam_size=8)` -> forwarded as model_kwargs to the runner, per the forward() docstring's 'e.g. beam_size for demo overrides') but for a batch: `model.forward_batch(samples, beam_size=8)` raises TypeError (no such parameter), and there is no batch-level way to pass such kwargs at all -- the caller silently gets runner defaults for every sample in the batch with no equivalent, forcing them to fall back to a manual per-sample forward() loop and lose the batched-inference path entirely.",
+      "evidence": "forward() (L390-430) signature is `forward(self, sample, idx=0, **extra_kwargs)` and passes `model_kwargs=extra_kwargs` at L429. forward_batch() (L440-530) signature is `forward_batch(self, samples, indices=None)` -- no **extra_kwargs/model_kwargs parameter -- and neither the batched call at L492-499 nor the per-sample fallback loop at L521-529 passes any model_kwargs to `self.runner_cls.forward(...)`.",
+      "suggested_fix": "Add `**extra_kwargs` to forward_batch's signature and thread `model_kwargs=extra_kwargs` into both runner_cls.forward call sites inside it, matching forward().",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": ["test/espnet3/publication/test_inference_model.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/publication_utils.py",
+      "lines": "557-569",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "pack_model's allow_overwrite path does an unguarded shutil.rmtree(out_dir) with no check that out_dir isn't (or doesn't contain as an ancestor) recipe_root or exp_dir, so a misconfigured out_dir can wipe an entire experiment or recipe directory.",
+      "scenario": "A user sets `pack_model.out_dir: ${exp_dir}` (instead of the TEMPLATE default `${exp_dir}/model_pack`) while also setting `allow_overwrite: true` for CI re-packing convenience. On the next pack_model run, `out_dir.exists()` is true and allow_overwrite is true, so `shutil.rmtree(out_dir)` (line 568) deletes the entire exp_dir -- all checkpoints, logs, and other stage outputs -- before repacking, with no confirmation, dry-run, or 'are you sure this isn't your experiment root' guard.",
+      "evidence": "publication_utils.py:562-569: `if out_dir.exists(): if not getattr(pack_cfg, \"allow_overwrite\", False): raise RuntimeError(...); shutil.rmtree(out_dir)` -- no comparison of out_dir against recipe_root/exp_dir/an ancestor of either. test_pack_model_allow_overwrite_clears_stale_files (test_publish.py:357) only exercises the intended case (out_dir is its own dedicated directory), never the overlapping-with-exp_dir/recipe_root case.",
+      "suggested_fix": "Before rmtree, refuse (or require an additional explicit flag) when out_dir equals or is an ancestor of recipe_root or exp_dir.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": ["test/espnet3/utils/test_publish.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/publication/demo/packing.py",
+      "lines": "27-94",
+      "category": "design",
+      "severity": "medium",
+      "summary": "pack_demo never cleans demo_dir before writing (unlike pack_model, which rmtrees out_dir on overwrite), so files removed from pack.include or otherwise stale from a previous pack are silently left behind across re-packs.",
+      "scenario": "Pack a demo with `pack.include: [assets]` where assets/ contains extra.png; later remove extra.png from pack.include (or delete it from the source assets dir) and re-run pack_demo pointed at the same out_dir. demo_dir/assets/extra.png (or the whole now-unwanted assets/ subtree) remains in the bundle and gets uploaded via upload_demo, even though the current config no longer references it.",
+      "evidence": "packing.py:73 `demo_dir.mkdir(parents=True, exist_ok=True)` is the only directory-prep step in pack_demo; every subsequent write (_write_requirements, _copy_pack_includes, _setup_demo_assets, _write_demo_readme) only ever overwrites files it knows about, never removes anything. Contrast with pack_model's out_dir handling (publication_utils.py:562-569), which rmtrees the whole directory on allow_overwrite.",
+      "suggested_fix": "Give pack_demo the same allow_overwrite+rmtree (or an explicit clean step) semantics pack_model already has for out_dir.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": ["test/espnet3/demo/test_pack.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/publication_utils.py",
+      "lines": "149-217",
+      "category": "design",
+      "severity": "low",
+      "summary": "_rewrite_paths_for_bundle only rewrites strings that resolve to a path already copied into the bundle (copied_sources); any other absolute host filesystem path baked into training/inference/metrics/publication config (e.g. a dataset root or cache dir not listed under pack_model.include/files) is written into the shipped conf/*.yaml verbatim, which can leak local usernames/host paths into a publicly uploaded model bundle.",
+      "scenario": "A recipe's training_config.data.train_data (or similar) points at an absolute path like /home/alice/corpora/librispeech that isn't part of pack_model.include or files/yaml_files. pack_model writes training.yaml into the bundle with that absolute path unchanged (since it's not in copied_sources), and upload_model pushes it to a public HF repo, exposing the recipe author's local filesystem layout/username.",
+      "evidence": "publication_utils.py:175-192 `_rewrite_paths_for_bundle` only special-cases strings under `copied_sources` (built solely from exp_dir + pack.include + files/yaml_files, see lines 571-627); every other string field, including absolute paths, falls through to `return value` unchanged at line 192. No test in test_publish.py asserts that an un-included absolute path is either rewritten, stripped, or at least warned about.",
+      "suggested_fix": "Warn (or redact) when a config value looks like an absolute path outside recipe_root and outside copied_sources, so recipe authors know it will ship verbatim.",
+      "confidence": 0.45,
+      "test_name": null,
+      "related_files": ["test/espnet3/utils/test_publish.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/publication/demo/packing.py",
+      "lines": "315-410",
+      "category": "design",
+      "severity": "low",
+      "summary": "demo/packing.py resolves relative include/model paths against Path.cwd() while publication_utils.py's pack_model consistently uses the explicit training_config.recipe_dir, so pack_demo silently misresolves assets if invoked with a different working directory than the recipe root.",
+      "scenario": "A caller (e.g. a batch/orchestration script, or a test harness) invokes `system.pack_demo()` from a directory other than the recipe root -- pack_model already fully supports this via `Path(training_config.recipe_dir).resolve()`, but `_prepare_demo_config` (packing.py:345-347) and `_copy_pack_includes` (packing.py:393) both anchor relative paths to `Path.cwd()`/`Path.cwd().resolve()` instead of any config-carried recipe root, so relative `pack.include` entries or `model.dir_or_tag` resolve against the wrong directory and either silently pick up unrelated files or raise 'does not exist' warnings.",
+      "evidence": "packing.py:347 `candidate = (Path.cwd() / candidate).resolve()`; packing.py:393 `recipe_root = Path.cwd().resolve()`; contrast with publication_utils.py:550 `recipe_root = Path(training_config.recipe_dir).resolve()`, which is config-driven rather than CWD-driven.",
+      "suggested_fix": "Thread demo_config.recipe_dir (present in egs3/TEMPLATE/asr/conf/demo.yaml as `recipe_dir: .`) through to these resolution points instead of Path.cwd(), matching pack_model's convention.",
+      "confidence": 0.4,
+      "test_name": null,
+      "related_files": ["test/espnet3/demo/test_pack.py"],
+      "verified_by_execution": false
+    }
+  ]
+}

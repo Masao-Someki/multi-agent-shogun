@@ -1,0 +1,376 @@
+{
+  "area": "base-inference",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/systems/base/inference.py",
+      "espnet3/systems/base/inference_provider.py",
+      "espnet3/systems/base/inference_runner.py",
+      "espnet3/parallel/base_runner.py",
+      "espnet3/parallel/env_provider.py",
+      "espnet3/parallel/parallel.py",
+      "espnet3/parallel/inference_provider.py",
+      "espnet3/utils/writer_utils.py",
+      "espnet3/utils/run_utils.py",
+      "egs3/TEMPLATE/asr/src/inference.py",
+      "egs3/mini_an4/asr/src/inference.py",
+      "egs3/librispeech_100/asr/src/inference.py",
+      "egs3/TEMPLATE/asr/conf/inference.yaml",
+      "egs3/mini_an4/asr/conf/inference.yaml",
+      "egs3/mini_an4/asr/conf/inference_transducer.yaml",
+      "egs3/TEMPLATE/asr/run.py",
+      "egs3/TEMPLATE/tts/conf/inference.yaml",
+      "egs3/librispeech_100/asr/conf/inference.yaml",
+      "test/espnet3/systems/base/test_inference.py",
+      "test/espnet3/systems/base/test_inference_runner.py",
+      "test/espnet3/systems/base/test_inference_utils.py",
+      "test/espnet3/systems/asr/test_asr_inference.py",
+      "test/espnet3/parallel/test_inference_runner.py",
+      "test/espnet3/parallel/test_inference_provider.py",
+      "test/espnet3/parallel/test_base_runner_batch.py"
+    ],
+    "files_skimmed": [
+      "espnet3/systems/base/system.py",
+      "espnet3/utils/stages_utils.py",
+      "espnet3/utils/config_utils.py",
+      "espnet3/utils/publication_utils.py",
+      "espnet3/publication/inference_model.py",
+      "espnet3/components/data/data_organizer.py",
+      "espnet3/components/metrics/base_metric.py",
+      "espnet2/bin/asr_inference.py",
+      "espnet2/bin/asr_transducer_inference.py",
+      "espnet3/systems/base/training.py",
+      "espnet3/systems/asr/system.py",
+      "espnet3/systems/asr/metrics/wer.py",
+      "test/espnet3/systems/asr/test_asr_transducer.py"
+    ],
+    "files_not_read": [],
+    "tests_inspected": [
+      "test/espnet3/systems/base/test_inference.py",
+      "test/espnet3/systems/base/test_inference_runner.py",
+      "test/espnet3/systems/base/test_inference_utils.py",
+      "test/espnet3/systems/asr/test_asr_inference.py",
+      "test/espnet3/parallel/test_inference_runner.py",
+      "test/espnet3/parallel/test_inference_provider.py",
+      "test/espnet3/parallel/test_base_runner_batch.py"
+    ],
+    "notes": "SALVAGED: reconstructed from a cut-off Phase-1 pass (session limit hit before it could emit structured JSON). Original notes file review_log/findings/phase1_base-inference.md and its transcript extract (review_log/salvage/base-inference.txt, 66 tool_uses) listed 19 bundled findings (H1-H3, M1-M9, L*) each tagged with whether it was verified by running a small repro script from SCRATCH. This pass re-opened every cited file in the current tree, confirmed/adjusted line numbers, expanded the single 'L*' bundle into 7 separate entries, and independently re-derived the mechanism for each finding from the current source (build_dataset's non-exclusive if/if double-instantiation, write_record's env-vs-self kwarg mismatch, _plan_shards ignoring n_workers under env=local, _filter_pending_shards pre-locking without an unlock-on-failure path for shards other than the one that failed, asr_transducer_inference.py's return_decoded_hyp branching, etc.) to confirm each claim is grounded in real code, not just trusted verbatim. verified_by_execution=true is set only where the original notes/transcript explicitly say a repro script confirmed the behaviour (SCRATCH/v/v1..v17, v6_misc, v16_ddp_sim per the transcript's tool-call list); items without an explicit '- verified' in the notes are marked false even though this pass independently confirmed them by reading code. The original verification scripts themselves were not re-run (their stdout is not present in the transcript extract, only the commands), so exact reported numbers (e.g. M1's '3 constructions') are carried over from the notes rather than independently re-measured; the underlying double-instantiation bug is independently confirmed by reading espnet3/systems/base/inference_provider.py:207-216. Two failed/skipped tests referenced by COMMON_INSTRUCTIONS' full-suite summary were not specific to this area and were not chased down. egs3/librispeech_100/asr inference config/src were read but produced no additional findings beyond what mini_an4/TEMPLATE already surface."
+  },
+  "assumptions": [
+    "Treated 'H'/'M'/'L' prefixes in the salvaged notes as 'high'/'medium'/'low' severity respectively, matching the common severity rubric's crash-in-a-configured-path (high) vs wrong-in-an-edge-case-or-design-debt (medium) vs minor (low) definitions; none of the original items were judged 'critical'.",
+    "Assumed the Lightning DDP subprocess launcher (lightning.pytorch.strategies.launchers.subprocess_script) re-executes the full run.py script in child-rank processes and that execution continues past trainer.fit() into subsequent stages in the same process, per the transcript's inspection of _SubprocessScriptLauncher/_ChildProcessObserver; this was verified in the original pass with a 2-process simulation (v16_ddp_sim.py) rather than an actual multi-GPU Lightning run.",
+    "Assumed espnet2's transducer Hypothesis type is not a tuple/NamedTuple subclass (so it falls through to the generic pickle-fallback branch of _materialize_output_value rather than the explicit list/tuple TypeError branch) based on the original pass's fake-output verification; this file did not re-inspect espnet2's Hypothesis class definition directly."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/utils/stages_utils.py",
+      "lines": "116-176",
+      "category": "bug",
+      "severity": "high",
+      "summary": "run_stages() has no rank guard: in a multi-GPU run.py invocation with stages=[train, infer, ...], every DDP rank (including subprocess-launched child ranks) executes every stage, so all ranks call infer() concurrently against the same inference_dir.",
+      "scenario": "A recipe runs `python run.py --stages train infer` under Lightning DDP with devices>1 (or any run.py invocation with multiple stages under a distributed trainer.strategy). Lightning's subprocess launcher re-executes run.py in every child-rank process; after `trainer.fit()` returns in each rank's process, execution continues into the next requested stage (infer) with no rank check anywhere in run_stages() or inference.py. All ranks then call BaseRunner.__call__ against the same output_dir at the same time; the first rank to reach _filter_pending_shards's _try_lock_shard wins, and every other rank hits 'Shard is already locked by another runner' and crashes (or, in a race where locks land on different not-yet-locked shards, multiple ranks write conflicting outputs into the same test-set directory).",
+      "evidence": "run_stages() at stages_utils.py:138-176 only special-cases rank for choosing a *log filename* on the 'train' stage (`if stage == \"train\": ... rank = _get_process_rank() ...`); no other stage, including 'infer', consults rank at all before calling `fn = getattr(system, stage, None)` and invoking it (line 139, called unconditionally per stage in the for-loop). `grep -rn \"LOCAL_RANK|is_global_zero|global_rank|barrier\" espnet3/` shows rank-awareness only inside espnet3/components/callbacks/ema.py, default_callbacks.py, and lightning_module.py (Lightning training internals) -- nothing in the run.py/system/inference call path. egs3/TEMPLATE/asr/run.py:27-38 sets DEFAULT_STAGES = [..., \"train\", \"infer\", ...], i.e. a plain `--stages all` (or the default) invocation chains both stages in one process. Original pass verified the resulting lock collision with a 2-process simulation (SCRATCH/v/v16_ddp_sim.py): 'rank0 died with \"Shard is already locked\"'.",
+      "suggested_fix": "Gate non-training stages (or at least infer/measure/pack_model/upload_model) on `trainer.is_global_zero`/rank==0 in run_stages, or have run.py detect it is running as a DDP child (e.g. via LOCAL_RANK/RANK env vars set by the subprocess launcher) and exit after the train stage instead of falling through to the rest of DEFAULT_STAGES.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/run.py",
+        "espnet3/systems/base/inference.py",
+        "espnet3/parallel/base_runner.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "306-357",
+      "category": "bug",
+      "severity": "high",
+      "summary": "Resume compares only the shard plan (item indices/batching), never the model/provider config, so re-running infer after changing the checkpoint, beam size, or any other inference_config field silently reuses the previous run's stale per-shard outputs with no warning.",
+      "scenario": "User runs infer, gets hyp.scp for a first checkpoint, then edits inference_config.model.asr_model_file (or beam_size, or any provider param) and re-runs the same --inference_config with resume defaulting to True. _resolve_shards() (base_runner.py:306-334) only checks that `manifest_shards == planned_shards`, i.e. that the same indices were chunked into the same shard boundaries; it has no notion of which model/config produced the existing shard output. _filter_pending_shards() (336-357) then sees every shard's `done` marker still present and skips all of them (`if self.resume and self.is_shard_done(shard_dir): continue`), so BaseRunner.__call__ never dispatches any work and infer() reports success while writing out the *old* model's hyp.scp. Verified by re-running infer() twice with different fake models against the same output_dir in the same shard layout.",
+      "evidence": "base_runner.py:318-333 (`if manifest_shards != planned_shards: raise ...` -- compares only shard_id/items, never model/provider identity) and base_runner.py:345 (`if self.resume and self.is_shard_done(shard_dir): continue`, no logger call on the skip path). No log statement anywhere in _filter_pending_shards or __call__ reports 'N shards skipped because already done'; the only visible feedback is the tqdm progress bar over `pending`, which is empty and thus invisible when every shard is already done.",
+      "suggested_fix": "Log at INFO (or WARNING) whenever a shard is skipped because it is already done, and/or fingerprint the provider/model config into the manifest so a config change forces a re-run (or at least a clear error telling the user to pass resume=False / clear the output dir).",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "336-394",
+      "category": "bug",
+      "severity": "high",
+      "summary": "_filter_pending_shards() pre-locks every pending shard before any of them run, but a failure while processing one shard leaves every other already-locked, not-yet-dispatched shard's lock file on disk forever, since only the shard actually inside _run_one_shard's try/finally gets unlocked.",
+      "scenario": "A 2-shard local run where shard 0's forward() raises (e.g. a bad utterance, OOM, or a KeyError from a downstream bug such as M2). _filter_pending_shards() has already called _try_lock_shard on both shard 0 and shard 1 in its loop (lines 341-356) before _run_local ever starts iterating. _run_local (396-408) then calls _run_one_shard for shard 0 first; when forward() raises inside its try block (388), the exception propagates out of _run_one_shard through its `finally: cls._unlock_shard(shard_dir)` (394), which only removes shard 0's lock -- shard 1's lock file, created earlier in _filter_pending_shards and never passed through _run_one_shard, is never touched. The next invocation of infer() then hits `_try_lock_shard` failing for shard 1 and raises 'Shard is already locked by another runner', even though no process is actually running -- the user must manually find and delete the stray lock file. Verified with a 2-shard plan where shard 0 is made to fail.",
+      "evidence": "_filter_pending_shards (336-357) locks every shard in the returned `pending` list up front via `self._try_lock_shard(shard_dir)` (347) with no compensating unlock on the caller side. _run_local (396-408) then processes `pending` shards one at a time via a plain for-loop with no exception handling of its own, so a raised exception from one shard's _run_one_shard call aborts the whole loop, leaving unprocessed-but-already-locked shards untouched. test_base_runner_batch.py's `test_failed_shard_releases_lock` (lines 333-350) only exercises a *single*-shard failure (batch_size=2, indices=[0,1] -> exactly one shard under env=local), so it never covers the multi-shard leak scenario.",
+      "suggested_fix": "Lock shards lazily right before each one is actually dispatched (inside _run_one_shard or immediately before it), or wrap the pending-shard dispatch loop in a try/finally that unlocks every shard in `pending` that was locked but never completed.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/parallel/test_base_runner_batch.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "207-216",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "build_dataset() uses two independent (non-exclusive) `if` statements instead of if/elif; when config arrives as a plain dict (e.g. because an upstream `_convert_: all` conversion turned the DictConfig into a plain dict), the first branch converts it to a DictConfig and instantiates the organizer, then the second `if isinstance(config, DictConfig)` also fires on that same now-converted config and instantiates the organizer a second time.",
+      "scenario": "load_and_merge_config's `_convert_: all` handling (espnet3/utils/config_utils.py) can cause `inference_config`/`provider.config` to be passed down as a plain Python dict rather than a DictConfig in some instantiation paths. When that happens, build_dataset(config) hits `if isinstance(config, dict): config = OmegaConf.create(config); organizer = instantiate(config.dataset)` and then immediately falls into `if isinstance(config, DictConfig): organizer = instantiate(config.dataset)` again, since `config` was just rebound to a DictConfig -- constructing DataOrganizer (and therefore re-running all data_src loading/preprocessing setup) twice for a single build_dataset() call. Combined with build_dataset() being invoked at least twice per test set in the normal infer() flow (once directly in inference.py:182 for the length check, once again inside provider.build_env_local()), a dict-config path multiplies DataOrganizer construction further. Verified end-to-end with a fake provider/model forcing the dict-input path: 3 DataOrganizer constructions observed for one test set (SCRATCH/v/v1_convert_all.py).",
+      "evidence": "espnet3/systems/base/inference_provider.py:207-212:\\n```\\nif isinstance(config, dict):\\n    config = OmegaConf.create(config)\\n    organizer = instantiate(config.dataset)\\n\\nif isinstance(config, DictConfig):\\n    organizer = instantiate(config.dataset)\\n```\\nThe second `if` is not an `elif`, so it always re-fires once the first branch has converted `config` in place.",
+      "suggested_fix": "Change the second `if` to `elif`, or restructure as a single normalization step (`if isinstance(config, dict): config = OmegaConf.create(config)`) followed by one unconditional `organizer = instantiate(config.dataset)`.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/utils/config_utils.py",
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/base/inference_runner.py",
+      "lines": "110-346",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "InferenceRunner's constructor arguments idx_key/hyp_key/ref_key are stored on `self` but never consulted at runtime: forward/write_record are @staticmethod, invoked by BaseRunner via `cls.write_record(..., **env)` where env comes from the provider's build_env_local(), not the runner instance -- and inference.py never puts hyp_key/ref_key into that env at all, so ref_key validation is silently dropped and a configured output_keys entry missing from a single result raises a bare, unhelpful KeyError instead of the intended validated ValueError.",
+      "scenario": "A recipe sets `inference_config.output_keys: [hyp, ref]` (so provider_params[\"output_keys\"] = [\"hyp\", \"ref\"] flows into env via build_env_local), and the recipe's output_fn only returns `{\"utt_id\": ..., \"hyp\": ...}` for one particular sample (e.g. ref is genuinely absent for that utterance). InferenceRunner.write_record (296-346) receives `hyp_key=None, ref_key=None` from **env (since inference.py's runner_kwargs never populates env with hyp_key/ref_key -- only idx_key/input_key/output_keys/output_fn_path/output_artifacts are set as provider_params), so `_validate_output_with_keys` computes `expected = {idx_key}` only (hyp_keys=[] ref_keys=[]) and never flags the missing 'ref'. Execution then reaches `_resolve_output_keys(..., output_keys=[\"hyp\",\"ref\"])`, which returns [\"hyp\",\"ref\"] verbatim (non-empty, so no idx_key-exclusion fallback), and the per-field loop does `value=output[field_key]` for field_key='ref' -> bare `KeyError('ref')` with no context about which utt_id or shard failed. Verified by constructing a runner with the real inference.py call sequence and a result dict missing an output_keys entry.",
+      "evidence": "inference_runner.py:110-136 sets self.idx_key/self.hyp_key/self.ref_key in __init__, but forward (192) and write_record (296) are `@staticmethod`s invoked from base_runner.py:388 (`cls.forward(item, **env)`) and base_runner.py:243 (`cls.write_record(state[\"_writers\"], result, state, **env)`) -- both classmethod-style calls that never see `self`. espnet3/systems/base/inference.py:169-176 builds `runner_kwargs = {..., \"idx_key\": idx_key, \"hyp_key\": hyp_keys, \"ref_key\": [], ...}` (ref_key is hard-coded to `[]` regardless of config) purely for the runner constructor, while the separate `provider_params` dict (141-155) that actually becomes the worker `env` never includes hyp_key/ref_key at all. inference_runner.py:331-339 does `value = _materialize_output_value(..., value=output[field_key], ...)` with no try/except around the `output[field_key]` lookup.",
+      "suggested_fix": "Thread idx_key/hyp_key/ref_key/output_keys consistently through the same channel the static methods actually read (env/kwargs), and wrap the `output[field_key]` lookup in write_record with a check that raises the same descriptive ValueError _validate_output_with_keys already produces for missing idx_key, instead of a bare KeyError.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py",
+        "espnet3/parallel/base_runner.py",
+        "test/espnet3/systems/base/test_inference_runner.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/src/inference.py",
+      "lines": "12-16",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "TEMPLATE's build_output_transducer assumes model_output[0] is a plain hypothesis object, but espnet2's transducer Speech2Text.__call__ returns either a List[Hypothesis] (default) or a List[tuple] of (text, token, token_int, hyp) (return_decoded_hyp=True, as set in mini_an4's inference_transducer.yaml) -- the tuple case makes hyp a top-level tuple, which InferenceRunner explicitly rejects with a TypeError, and the default (Hypothesis) case falls through to the generic pickle writer, silently writing a pickle-file path into hyp.scp instead of decoded text.",
+      "scenario": "Recipe uses mini_an4/asr/conf/inference_transducer.yaml, which sets `model._target_: espnet2.bin.asr_transducer_inference.Speech2Text` with `return_decoded_hyp: true` (line 53) and `output_fn: src.inference.build_output`. With return_decoded_hyp=True, Speech2Text.__call__ (espnet2/bin/asr_transducer_inference.py:248-284) returns `self.hypotheses_to_results(nbest_hyps)`, a List of 4-tuples `(text, token, token_int, hyp)` (267-309); `build_output_transducer`'s `hyp = model_output[0]` (TEMPLATE inference.py:15) is then that whole 4-tuple, not a string. InferenceRunner._materialize_output_value (inference_runner.py:74-79) explicitly raises `TypeError(\"Top-level list outputs are not supported for 'hyp'...\")` for any list/tuple value, so every sample in the test set fails inference with that TypeError. If return_decoded_hyp were left at its default False, `model_output[0]` would instead be a Hypothesis object; since Hypothesis is not a list/tuple, _materialize_output_value's final fallback (81-87) pickles it and writes the resulting .pkl path string into hyp.scp -- no exception, but hyp.scp then silently contains file paths instead of decoded transcriptions, which a WER metric reading hyp.scp would score as complete garbage with no error surfaced anywhere. Verified with fake Speech2Text outputs reproducing both branches.",
+      "evidence": "egs3/TEMPLATE/asr/src/inference.py:12-16 (`hyp = model_output[0]`); espnet2/bin/asr_transducer_inference.py:281-284 (`if self.return_decoded_hyp: return self.hypotheses_to_results(nbest_hyps)` / `return nbest_hyps`) and 285-309 (`results.append((text, token, token_int, hyp))`); egs3/mini_an4/asr/conf/inference_transducer.yaml:53 (`return_decoded_hyp: true`); espnet3/systems/base/inference_runner.py:74-87 (list/tuple -> TypeError, else -> pickle fallback).",
+      "suggested_fix": "Update build_output_transducer to unpack the (text, token, token_int, hyp) tuple explicitly when return_decoded_hyp=True (e.g. `text = model_output[0][0]`) and to extract `.yseq`/decoded text explicitly from the Hypothesis object in the default case, rather than passing either through as an opaque hyp value.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "egs3/mini_an4/asr/conf/inference_transducer.yaml",
+        "espnet2/bin/asr_transducer_inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "218-273",
+      "category": "design",
+      "severity": "medium",
+      "summary": "build_model() unconditionally passes a resolved `device=` kwarg into every model _target_, silently overriding any `device` a user explicitly set inside `model:` in their config, with no warning that the override happened.",
+      "scenario": "A user writes `model: {_target_: my.Model, device: cuda:1}` intending to pin a model to a specific physical GPU regardless of LOCAL_RANK. build_model computes `device = InferenceProvider._resolve_device(config)` (252) from config.device/device_index/local_rank/LOCAL_RANK/cuda:0-fallback -- none of which is the nested `model.device` the user actually set -- and then calls `instantiate(config.model, device=device)` (267/273) unconditionally, which for most Hydra instantiate configurations overrides the `device` key already present in `config.model` with the outer kwarg. The user's explicit per-model device setting is silently discarded in favor of the process-level resolved device with no log or error indicating an override occurred.",
+      "evidence": "inference_provider.py:252-273: `device = InferenceProvider._resolve_device(config)` then either `model = instantiate(config.model, device=device)` (267, inside the recipe_dir chdir branch) or `return instantiate(config.model, device=device)` (273, the else branch) -- both pass `device=device` as an instantiate() override kwarg with no check for whether `config.model` already defines its own `device`.",
+      "suggested_fix": "Only pass `device=device` when `config.model` does not already define a `device` key, or log at INFO when an explicit model.device is being overridden by the resolved process device.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/conf/inference.yaml",
+      "lines": "107-109",
+      "category": "design",
+      "severity": "medium",
+      "summary": "The TEMPLATE comments batch_size as `# batch_size: 1` (a plausible value to uncomment), but batch_size=1 is not equivalent to unbatched (batch_size=None) inference: it forces every single item through InferenceRunner.forward's batched code path, which many models/output_fns (including the TEMPLATE's own build_output) do not support, and any resulting failure is reported as a generic 'Batched inference failed' RuntimeError with the original per-utterance error and utt_id/index context discarded.",
+      "scenario": "A user follows the TEMPLATE comment and sets `batch_size: 1` on a recipe using `espnet2.bin.asr_inference.Speech2Text` and TEMPLATE's `build_output` (data.get(\"utt_id\", ...), model_output[0][0]). BaseRunner.__call__ (base_runner.py:463-469) chunks indices into singleton lists `[[0], [1], ...]` regardless of batch_size's value being 1 vs >1; InferenceRunner.forward (192) sees `idx=[0]` and takes the `is_batched=True` branch (249-280) rather than the single-item branch (250-260), producing `inputs_dict = {\"speech\": [speech_array]}` (a length-1 *list* of the single sample) and calling `model(speech=[speech_array])`. Speech2Text.__call__ does not accept a list-wrapped single sample the way it accepts a single sample, so the call fails (shape/type error), and forward's except block (271-280) re-raises as `RuntimeError(\"Batched inference failed. If your model/output_fn does not support batched inputs, set batch_size to None.\")`, losing the original exception's detail (only kept via `from exc`, not surfaced in the message) and any indication of which utt_id/index triggered it. Verified against the actual TEMPLATE/mini_an4 output_fn signatures.",
+      "evidence": "egs3/TEMPLATE/asr/conf/inference.yaml:107-109 (`# Set to null if your model or output_fn only supports single-item decoding.\\n# batch_size: 1`); espnet3/parallel/base_runner.py:463-469 (chunks indices into lists of size batch_size, including size 1); espnet3/systems/base/inference_runner.py:249,262-280 (`is_batched = isinstance(idx, (list, tuple))` is True for a length-1 list; batched branch wraps every input value in a list and calls model(**inputs_dict) inside a broad try/except that rewrites the error message).",
+      "suggested_fix": "Either make batch_size=1 route through the unbatched forward path (since a batch of one and 'no batching' are observationally the same for well-behaved models), or update the TEMPLATE comment/docs to warn that batch_size=1 still exercises the batched code path and requires output_fn/model support for list-wrapped inputs.",
+      "confidence": 0.65,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/src/inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "283-304",
+      "category": "design",
+      "severity": "medium",
+      "summary": "_plan_shards() only reads `n_workers` when `parallel.env != \"local\"`; with `env: local` (the TEMPLATE default), bumping `n_workers` above 1 has no effect at all -- exactly one shard is created and it always runs sequentially on the driver, with no warning that the setting was ignored.",
+      "scenario": "A user copies TEMPLATE's `parallel: {env: local, n_workers: 1}` block and, wanting to speed up local CPU inference, bumps it to `n_workers: 4` while leaving `env: local` (a natural first thing to try, since 'local' just describes execution mode, not degree of parallelism, and n_workers reads as an independent knob). _plan_shards (283-304) computes `num_shards = 1` unconditionally whenever `env in (\"local\",)` (288: `if par_config is not None and env not in (\"local\",): num_shards = int(getattr(par_config, \"n_workers\", 1))`), so exactly one shard is produced regardless of n_workers. BaseRunner.__call__ (473-478) then dispatches via `_run_local` (since env==\"local\"), which processes that single shard sequentially on the driver process. No error, warning, or log line indicates n_workers was ignored; the run simply takes the same time as n_workers=1.",
+      "evidence": "base_runner.py:283-304, specifically line 288: `if par_config is not None and env not in (\"local\",): num_shards = int(getattr(par_config, \"n_workers\", 1))` -- when env==\"local\" this condition is False so num_shards stays at its initial value of 1 (287). base_runner.py:473-478 always routes env==\"local\" through `_run_local`, never `_run_parallel_dask`, so even the single shard cannot use extra worker processes. egs3/TEMPLATE/asr/conf/inference.yaml:72-74 ships `env: local` with `n_workers: 1` side by side, inviting exactly this misconfiguration.",
+      "suggested_fix": "Either honor n_workers under env=local by chunking into that many shards and running them with a local thread/process pool, or raise/warn when n_workers>1 is set together with env=local so the misconfiguration is visible instead of silently doing nothing.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/inference.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/base/inference_runner.py",
+      "lines": "100-107",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "InferenceRunner's class docstring claims list-valued hyp_key/ref_key entries are written as multiple SCP files (hyp0.scp, hyp1.scp, ...), but no such multi-file-per-field code path exists; _materialize_output_value raises TypeError for any list/tuple field value.",
+      "scenario": "A user reads the docstring at inference_runner.py:100-107 ('hyp_key and ref_key values may be scalars or lists/tuples. If lists are returned, each entry is written to its own SCP file (e.g., hyp0.scp, hyp1.scp).') and returns `{\"utt_id\": ..., \"hyp\": [\"h1\", \"h2\"]}` from their output_fn expecting two hypothesis alternatives to be split into hyp0.scp/hyp1.scp. Instead, _materialize_output_value (74-79) immediately raises `TypeError(\"Top-level list outputs are not supported for 'hyp'. Return a single value per field, or wrap structured content in a dict...\")`, directly contradicting the docstring's description; there is no hypN.scp naming logic anywhere in inference_runner.py or writer_utils.py.",
+      "evidence": "inference_runner.py:105-107 (docstring) vs inference_runner.py:74-79 (`if isinstance(value, (list, tuple)): raise TypeError(f\"Top-level list outputs are not supported for '{field_key}'. ...\")`); no occurrence of a pattern like f\"{field_key}{i}.scp\" anywhere in the file.",
+      "suggested_fix": "Either implement the documented multi-file behavior for list-valued hyp/ref fields, or fix the docstring to match the actual 'no top-level list/tuple values' contract stated elsewhere in the same module (infer.py's own docstring already says this correctly).",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/conf/inference.yaml",
+      "lines": "62-79",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "TEMPLATE's ASR inference.yaml ships with `dataset.test:` and `model:` both null; running infer() unmodified (or with only one of the two filled in) produces late, unqualified TypeErrors ('NoneType' object is not iterable / not callable) with no guidance pointing back at the specific null TEMPLATE field.",
+      "scenario": "A user copies TEMPLATE/asr as a new recipe and forgets to fill in `dataset.test` before running `--stages infer`. infer() (inference.py:92) immediately does `for index, test_set in enumerate(config.dataset.test):` on `config.dataset.test == None` (TEMPLATE line 66 leaves `test:` blank), raising a bare `TypeError: 'NoneType' object is not iterable` with no mention of which config field is at fault. If instead the user fills in `dataset.test` but forgets `model:` (TEMPLATE line 79, also blank), the failure surfaces much later and more confusingly: build_model returns None for a null model target, dataset build and validation succeed, and only when InferenceRunner.forward actually tries `model_output = model(**inputs_dict, **model_kwargs)` (inference_runner.py:257) does it fail with `TypeError: 'NoneType' object is not callable`, deep inside the per-shard worker loop after all of dataset construction, output_dir creation, and shard planning have already run.",
+      "evidence": "egs3/TEMPLATE/asr/conf/inference.yaml:62-67 (`dataset: {_target_: ...DataOrganizer, _recursive_: false, recipe_dir: ${recipe_dir}, test:, preprocessor:}` -- test is blank) and line 79 (`model:` blank); espnet3/systems/base/inference.py:92 (`for index, test_set in enumerate(config.dataset.test):`, no None-check before this line, which runs before any of the other input_key/output_keys/provider validation later in the same function); espnet3/systems/base/inference_runner.py:257 (`model_output = model(**inputs_dict, **model_kwargs)`, no None-check on `model`).",
+      "suggested_fix": "Add explicit `if config.dataset.test is None: raise RuntimeError(...)` and `if config.model is None: raise RuntimeError(...)` checks near the top of infer()/build_model with messages naming the specific TEMPLATE field that must be filled in, mirroring the existing input_key/provider/runner None-checks already present in the same function.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference_runner.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/TEMPLATE/tts/conf/inference.yaml",
+      "lines": "15",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "TTS TEMPLATE's `dataset:` key is left completely blank (unlike ASR TEMPLATE, which at least ships the `_target_`/`_recursive_`/`test`/`preprocessor` skeleton); a downstream TTS recipe that only overrides `dataset.test` inherits no `_target_`, so build_dataset's `instantiate(config.dataset)` fails with a confusing low-level OmegaConf error rather than a clear 'dataset._target_ is required' message.",
+      "scenario": "A new TTS recipe based on TEMPLATE/tts only sets `dataset: {test: [{name: eval, data_src_args: {...}}]}` in its own inference.yaml, following the ASR TEMPLATE convention of just providing `test:` entries (reasonably assuming the TEMPLATE default already supplies `_target_: DataOrganizer` the way ASR TEMPLATE does). Because TTS TEMPLATE's own `dataset:` (line 15) is entirely null rather than a partial DataOrganizer skeleton, the merged config's `dataset` node ends up as a plain mapping with a `test` list but no `_target_` key. `instantiate(config.dataset)` (inference_provider.py:209/212) then does not raise the expected 'missing _target_' style error but instead a confusing downstream error surfaced while OmegaConf/Hydra tries to interpret the structure (observed as 'ListConfig indices must be integers' in the original pass's repro), giving the user no indication that the real problem is a missing `_target_` on `dataset`.",
+      "evidence": "egs3/TEMPLATE/tts/conf/inference.yaml:15 (`dataset:` with nothing else in the block) contrasted with egs3/TEMPLATE/asr/conf/inference.yaml:62-67 (`dataset: {_target_: ...DataOrganizer, _recursive_: false, recipe_dir: ${recipe_dir}, test:, preprocessor:}`); espnet3/systems/base/inference_provider.py:207-216 (`organizer = instantiate(config.dataset)` with no _target_ presence check beforehand).",
+      "suggested_fix": "Give TTS TEMPLATE's `dataset:` block the same `_target_: espnet3.components.data.data_organizer.DataOrganizer` / `_recursive_: false` / `test:` / `preprocessor:` skeleton that ASR TEMPLATE already has, so downstream recipes only need to fill in `test:`.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference_provider.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/inference_provider.py",
+      "lines": "1-96",
+      "category": "design",
+      "severity": "low",
+      "summary": "espnet3.parallel.inference_provider.InferenceProvider is a second, differently-behaved class with the same name as espnet3.systems.base.inference_provider.InferenceProvider, but is only referenced by its own test file; no egs3 recipe or non-test code path uses it, making its coexistence with the real InferenceProvider a maintenance/confusion risk.",
+      "scenario": "A developer greps for 'InferenceProvider', finds two classes in different modules with materially different semantics (this one eagerly builds `self._local_env` in `__init__` and requires build_dataset/build_model as abstractmethods; the systems/base one builds lazily via build_env_local and provides concrete, non-abstract build_dataset/build_model implementations), and either imports the wrong one or wastes time reconciling which is authoritative for a new recipe/provider subclass.",
+      "evidence": "`grep -rn \"parallel.inference_provider\\|from espnet3.parallel.inference_provider\"` across espnet3/egs3/test/doc turns up only `test/espnet3/parallel/test_inference_provider.py:3: from espnet3.parallel.inference_provider import InferenceProvider` -- no recipe config, runner config, or other espnet3 module references this class.",
+      "suggested_fix": "Remove espnet3/parallel/inference_provider.py (and its test) if it is genuinely superseded by systems/base/inference_provider.py, or clearly document why both exist and when to use which.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference_provider.py",
+        "test/espnet3/parallel/test_inference_provider.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "19-54",
+      "category": "bug",
+      "severity": "low",
+      "summary": "_convert_relative_paths_to_absolute rewrites ANY string attribute on the model object graph that happens to name an existing file relative to cwd, with no notion of which attributes are actually meant to be paths -- an unrelated string field that coincidentally collides with a filename in the recipe directory gets silently corrupted into an absolute path.",
+      "scenario": "A model has a plain string attribute unrelated to filesystem paths, e.g. `self.token_type = \"bpe\"`, and the recipe directory (cwd during the recipe_dir-chdir'd instantiate() call, inference_provider.py:264-271) happens to contain a file or directory literally named `bpe` (a plausible name for e.g. a bpemodel directory or stray file). `_convert_relative_paths_to_absolute` walks every string attribute recursively (38-54), and for `token_type=\"bpe\"` computes `candidate = os.path.abspath(\"bpe\")`; since `os.path.isfile(candidate)` is True, it silently does `setattr(obj, \"token_type\", candidate)`, turning a semantic enum-like string into an absolute filesystem path. Downstream code that branches on `self.token_type == \"bpe\"` now silently fails to match. Verified by constructing a fake object with a `token_type=\"bpe\"` attribute and a same-named file in cwd.",
+      "evidence": "inference_provider.py:38-46: `for attr, val in list(obj_vars.items()): if isinstance(val, str): if not os.path.isabs(val): candidate = os.path.abspath(val); if os.path.isfile(candidate): ... setattr(obj, attr, candidate)` -- no allowlist/denylist of attribute names, no check that the attribute is actually used as a path anywhere in the class.",
+      "suggested_fix": "Restrict the rewrite to attributes whose name matches a path-like convention (e.g. ends with '_path', '_file', '_dir', or is in an explicit allowlist the model class declares), rather than any string that happens to resolve to an existing file.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/base/inference.py",
+      "lines": "89-111",
+      "category": "design",
+      "severity": "low",
+      "summary": "infer() mutates the shared inference_config in place across the per-test-set loop (config.test_set = test_name) and set_parallel() also mutates config.parallel.options in place; since run.py holds a single inference_config instance reused by later stages (pack_model reads inference_config to bundle it via _write_bundle_config), the packaged model's bundled inference.yaml can end up reflecting only the last test set processed and runtime-resolved parallel options rather than the user's original config.",
+      "scenario": "A single `python run.py --stages infer pack_model` invocation runs infer() over test_sets=[\"valid\", \"test\"], leaving `config.test_set == \"test\"` (the last iteration's value, set at inference.py:111) on the same DictConfig object referenced by `system.inference_config`. When the subsequent pack_model stage calls publication_utils.pack_model(..., inference_config=inference_config) -> _write_bundle_config, the dumped conf/inference.yaml in the packaged bundle carries this mutated `test_set: test` field (not present in the user's original file) plus whatever set_parallel(config.parallel) (inference.py:89, parallel.py:131-133 `config.options = options`) resolved into `parallel.options`, rather than the recipe author's original inference.yaml content.",
+      "evidence": "espnet3/systems/base/inference.py:89 (`set_parallel(getattr(config, \"parallel\", None))`) and :111 (`config.test_set = test_name`, mutating the same config object handed in by the caller); espnet3/parallel/parallel.py:131-133 (`options = dict(config.options) if hasattr(config, \"options\") else {}; config.options = options`, also an in-place mutation of the caller's config); espnet3/utils/publication_utils.py:524-645 (pack_model accepts `inference_config` and calls `_write_bundle_config` on it, per grep at lines 625/634/640).",
+      "suggested_fix": "Have infer() work on a deep copy of config for its per-test-set loop, and have set_parallel avoid mutating its input in place (it already does `parallel_config = copy.copy(config)` for the global, but still mutates `config.options` on the caller's object first).",
+      "confidence": 0.5,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/parallel.py",
+        "espnet3/utils/publication_utils.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "375-394",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "When forward() raises partway through a shard, _run_one_shard's try/finally only unlocks the shard -- it never calls finalize_state/close_writers, so any SCP file handles InferenceRunner.open_writers/write_record already opened for that shard (writers['scp_handles']) are left open (leaked file descriptors) as the exception propagates.",
+      "scenario": "A shard processes 5 items; forward() succeeds and write_record() opens hyp.scp/ref.scp file handles (inference_runner.py:340-345) for items 1-3, then forward() raises on item 4. _run_one_shard's try block (base_runner.py:385-392) never reaches `cls.finalize_state(state, ...)` (390), which is the only call path to InferenceRunner.close_writers (which closes writers['scp_handles']); the `finally: cls._unlock_shard(shard_dir)` (394) only removes the lock file, not the open file handles. The open file objects become unreachable once the exception unwinds the stack and are eventually closed only by garbage collection/process exit, not deterministically -- in a long-lived worker process (e.g. a Dask worker reused across many shard tasks) this accumulates open, un-flushed file handles across repeated shard failures.",
+      "evidence": "base_runner.py:385-394: `try: ... for item in items: result = cls.forward(item, **env); state = cls.reduce_state(...) ... cls.finalize_state(state, ...) ... finally: cls._unlock_shard(shard_dir)` -- finalize_state (only reachable after the for-loop completes without raising) is the sole caller of close_writers (247-253); inference_runner.py:340-345 opens `(shard_dir / f\"{field_key}.scp\").open(\"w\", ...)` handles stored in `writers[\"scp_handles\"]` with no context-manager/try-finally of their own.",
+      "suggested_fix": "Wrap the per-item loop's write_record calls (or the whole shard body) so that close_writers is always invoked on exit, success or failure, e.g. via try/finally around the for-loop that calls close_writers(writers, state, **env) regardless of outcome.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference_runner.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "181-183",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "build_dataset's and build_model's docstrings both claim 'Raises: NotImplementedError: Always in the base class; implement in subclass', but neither method is abstract or raises NotImplementedError -- both are fully concrete, generic implementations used directly by every TEMPLATE/mini_an4/librispeech_100 recipe via the base InferenceProvider class with no subclass override.",
+      "scenario": "A developer reads the docstring, assumes InferenceProvider is meant to be subclassed with build_dataset/build_model overridden per-recipe (matching the sibling class in espnet3.parallel.inference_provider, which genuinely does declare these as `@abstractmethod`), and either writes an unnecessary subclass or is confused when `provider: {_target_: espnet3.systems.base.inference_provider.InferenceProvider}` works directly in every TEMPLATE config with no subclass at all.",
+      "evidence": "inference_provider.py:181-183 (`Raises: NotImplementedError: Always in the base class; implement in subclass.`) and :232-234 (identical wording for build_model), yet both methods (166-216, 218-273) are plain `@staticmethod`s with full implementations and no `raise NotImplementedError` anywhere in either body; egs3/TEMPLATE/asr/conf/inference.yaml:158-159, egs3/TEMPLATE/tts/conf/inference.yaml:28-29 both instantiate this exact base class directly.",
+      "suggested_fix": "Remove the stale 'Raises: NotImplementedError' docstring section from both methods (or restore it accurately if a future refactor reintroduces an abstract base + concrete default subclass split).",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/inference.yaml",
+        "egs3/TEMPLATE/tts/conf/inference.yaml"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/parallel/test_inference_provider.py",
+      "lines": "1-56",
+      "category": "test-quality",
+      "severity": "low",
+      "summary": "The only test file for espnet3.parallel.inference_provider.InferenceProvider never exercises a real Hydra `_target_`/instantiate() config -- it subclasses with toy build_dataset/build_model methods that do plain attribute access (cfg.name) and asserts only call counts, so it provides no coverage of the actual dict-vs-DictConfig instantiation contract that real recipes depend on.",
+      "scenario": "Both tests (test_build_env_local_uses_cached_env_and_params, test_build_worker_setup_fn_rebuilds_env_and_captures_params) construct `OmegaConf.create({\"name\": \"test\"})` and a CountingProvider whose build_dataset/build_model simply return `{\"name\": cfg.name, \"call\": N}` -- neither ever calls `hydra.utils.instantiate` on a `_target_`-bearing config, so a regression in how a plain dict vs a DictConfig is handled when passed through this class's `build_env_local`/`build_worker_setup_fn` (the exact shape of bug found in the sibling systems/base InferenceProvider, M1 above) would not be caught here even if this class shared the same code path.",
+      "evidence": "test/espnet3/parallel/test_inference_provider.py:10-18 (CountingProvider.build_dataset/build_model access `cfg.name` directly, no `_target_`/instantiate anywhere in the file); no test in this file passes a plain `dict` (as opposed to an OmegaConf DictConfig) as `config` to exercise the class's actual dict-handling branch.",
+      "suggested_fix": "Add a test that builds a provider from a real `_target_`-bearing DictConfig via hydra.utils.instantiate, and a test that passes a plain dict config through build_dataset to cover the dict-vs-DictConfig branch this module is supposed to support.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/inference_provider.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "207-216",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test in test/espnet3/systems/base/ or test/espnet3/systems/asr/ exercises InferenceProvider.build_dataset with config passed as a plain dict (as opposed to a DictConfig), so the double-instantiation bug in M1 has no regression coverage.",
+      "scenario": "All discovered tests for this build_dataset (test_inference.py, test_inference_utils.py, test_asr_inference.py) construct config via `OmegaConf.create(...)`, which yields a DictConfig, and never pass a plain `dict`. The `isinstance(config, dict)` branch (inference_provider.py:207-209) is therefore only exercised by manual repro scripts written during this review, not by the test suite -- a fix or regression to the non-exclusive if/if bug (M1) would not be caught by `pytest test/espnet3/systems/base/test_inference*.py`.",
+      "evidence": "grep across test/espnet3/systems/base and test/espnet3/systems/asr for build_dataset call sites shows only OmegaConf.create-based DictConfig fixtures; the dict-input branch at inference_provider.py:207-209 has no corresponding assertion anywhere in the test tree.",
+      "suggested_fix": "Add a unit test that calls InferenceProvider.build_dataset with a plain Python dict (not OmegaConf.create-wrapped) and asserts the organizer/dataset is constructed exactly once (e.g. via a call-counting fake DataOrganizer _target_).",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/systems/base/test_inference.py",
+        "test/espnet3/systems/base/test_inference_utils.py"
+      ],
+      "verified_by_execution": false
+    }
+  ]
+}

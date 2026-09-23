@@ -1,0 +1,218 @@
+# Re-check list: reviewed ec5632b167 -> 2134a8282e
+
+changed files touching findings: 1
+
+## Cited lines changed -- re-verify, may already be fixed (1)
+
+- [ ] egs3-recipes#01 [high] `egs3/mini_an4/asr/dataset/builder.py:92-134` (cited lines modified) -- MiniAn4Builder.prepare_source() downloads the archive directly to its final path with no atomicity or completeness marker, so an interrupted
+
+## Same file changed elsewhere -- line numbers shifted, re-locate (2)
+
+- data-organizer#04 [high] `egs3/mini_an4/asr/dataset/builder.py:159-161,237-242` -- MiniAn4Builder.is_built() only checks that manifest files exist, and MiniAn4Builder.build() writes them non-atomically (
+- data-organizer#15 [medium] `egs3/mini_an4/asr/dataset/builder.py:213-224` -- build() checks `if not wav.exists()` before invoking sph2pipe, but the wav file is created (via `wav.open("wb")`) before
+
+## Untouched files -- still valid as written (203)
+
+- asr-system#01 [high] `espnet3/systems/asr/system.py:174-180`
+- asr-system#02 [high] `espnet3/systems/asr/system.py:94-99,101-183`
+- asr-system#03 [high] `espnet3/systems/asr/system.py:153-165`
+- asr-system#04 [medium] `espnet3/systems/asr/tokenizers/sentencepiece.py:196-224`
+- asr-system#05 [medium] `espnet3/systems/asr/tokenizers/sentencepiece.py:84-149`
+- asr-system#06 [medium] `espnet3/systems/asr/transducer_task.py:118-123,421-426`
+- asr-system#07 [low] `espnet3/systems/asr/tokenizers/sentencepiece.py:17-81`
+- asr-system#08 [low] `espnet3/systems/asr/tokenizers/sentencepiece.py:90`
+- asr-system#09 [low] `espnet3/systems/asr/system.py:174`
+- base-inference#01 [high] `espnet3/utils/stages_utils.py:116-176`
+- base-inference#02 [high] `espnet3/parallel/base_runner.py:306-357`
+- base-inference#03 [high] `espnet3/parallel/base_runner.py:336-394`
+- base-inference#04 [medium] `espnet3/systems/base/inference_provider.py:207-216`
+- base-inference#05 [medium] `espnet3/systems/base/inference_runner.py:110-346`
+- base-inference#06 [medium] `egs3/TEMPLATE/asr/src/inference.py:12-16`
+- base-inference#07 [medium] `espnet3/systems/base/inference_provider.py:218-273`
+- base-inference#08 [medium] `egs3/TEMPLATE/asr/conf/inference.yaml:107-109`
+- base-inference#09 [medium] `espnet3/parallel/base_runner.py:283-304`
+- base-inference#10 [medium] `espnet3/systems/base/inference_runner.py:100-107`
+- base-inference#11 [medium] `egs3/TEMPLATE/asr/conf/inference.yaml:62-79`
+- base-inference#12 [medium] `egs3/TEMPLATE/tts/conf/inference.yaml:15`
+- base-inference#13 [low] `espnet3/parallel/inference_provider.py:1-96`
+- base-inference#14 [low] `espnet3/systems/base/inference_provider.py:19-54`
+- base-inference#15 [low] `espnet3/systems/base/inference.py:89-111`
+- base-inference#16 [low] `espnet3/parallel/base_runner.py:375-394`
+- base-inference#17 [low] `espnet3/systems/base/inference_provider.py:181-183`
+- base-inference#18 [low] `test/espnet3/parallel/test_inference_provider.py:1-56`
+- base-inference#19 [low] `espnet3/systems/base/inference_provider.py:207-216`
+- base-pipeline#01 [critical] `espnet3/systems/base/training.py:62-68`
+- base-pipeline#02 [high] `espnet3/systems/base/metric.py:17-24`
+- base-pipeline#03 [high] `egs3/TEMPLATE/asr/conf/demo.yaml:4-5,24`
+- base-pipeline#04 [medium] `espnet3/utils/logging_utils.py:257-282`
+- base-pipeline#05 [medium] `espnet3/utils/stages_utils.py:183-190`
+- base-pipeline#06 [high] `espnet3/systems/base/system.py:131-141`
+- base-pipeline#07 [medium] `espnet3/utils/config_utils.py:151-156`
+- base-pipeline#08 [medium] `espnet3/utils/run_utils.py:52-82`
+- base-pipeline#09 [low] `espnet3/systems/base/system.py:120-122`
+- base-pipeline#10 [low] `espnet3/systems/base/system.py:236-271`
+- base-pipeline#11 [low] `espnet3/utils/stages_utils.py:56-69`
+- base-pipeline#12 [high] `espnet3/utils/stages_utils.py:116-197`
+- config-hydra#01 [critical] `egs3/TEMPLATE/asr/run.py:116-142`
+- config-hydra#02 [high] `espnet3/utils/task_utils.py:77-79`
+- config-hydra#03 [medium] `test/espnet3/utils/test_task_utils.py:55-66`
+- config-hydra#04 [low] `espnet3/utils/run_utils.py:75-82`
+- config-hydra#05 [low] `espnet3/utils/config_utils.py:159-184`
+- data-loading#01 [high] `espnet3/components/data/dataloader.py:83-90,258-260`
+- data-loading#02 [high] `espnet3/components/data/collect_stats.py:487-510`
+- data-loading#03 [high] `espnet3/components/data/dataloader.py:140-141,219-244`
+- data-loading#04 [medium] `espnet3/components/data/dataloader.py:109-119,223-244`
+- data-loading#05 [medium] `espnet3/components/data/dataloader.py:258-288`
+- data-loading#06 [medium] `espnet3/components/data/dataloader.py:192-195`
+- data-loading#07 [medium] `espnet3/components/data/dataloader.py:140-141,256,301`
+- data-loading#08 [medium] `espnet3/components/data/collect_stats.py:85-96`
+- data-loading#09 [medium] `espnet3/systems/base/training.py:31-40,67-68`
+- data-loading#10 [medium] `espnet3/components/data/dataset_module.py:207`
+- data-loading#11 [medium] `test/espnet3/components/data/test_collect_stats.py:209-211,235,365,414`
+- data-loading#12 [low] `espnet3/components/data/dataloader.py:204,237`
+- data-loading#13 [low] `espnet3/components/data/dataloader.py:189-190,216-217`
+- data-loading#14 [low] `espnet3/components/data/collect_stats.py:82-95,368-374,437-450`
+- data-loading#15 [low] `espnet3/components/data/collect_stats.py:506-507,569-579`
+- data-loading#16 [low] `espnet3/components/data/collect_stats.py:85-96`
+- data-loading#17 [low] `espnet3/components/data/dataset_module.py:102-115`
+- data-loading#18 [low] `espnet3/components/data/dataset_module.py:61-72`
+- data-loading#19 [low] `espnet3/components/data/dataset_module.py:31-36`
+- data-loading#20 [low] `test/espnet3/components/data/test_collect_stats.py:20`
+- data-loading#21 [low] `test/espnet3/components/data/test_dataloader_builder.py:477-512,606-661`
+- data-organizer#01 [high] `espnet3/components/data/dataset.py:165,393-398`
+- data-organizer#02 [high] `espnet3/components/data/collect_stats.py:40-50`
+- data-organizer#03 [high] `espnet3/components/data/data_organizer.py:308-318,404-427`
+- data-organizer#05 [medium] `espnet3/components/data/dataset.py:271-276,316-353`
+- data-organizer#06 [medium] `espnet3/components/data/dataset.py:251-257`
+- data-organizer#07 [medium] `espnet3/components/data/dataset.py:400-419`
+- data-organizer#08 [medium] `espnet3/components/data/dataset.py:181-217`
+- data-organizer#09 [medium] `espnet3/components/data/dataset_module.py:94-116`
+- data-organizer#10 [medium] `espnet3/components/data/data_organizer.py:319-331`
+- data-organizer#11 [medium] `espnet3/components/data/data_organizer.py:279-296`
+- data-organizer#12 [medium] `espnet3/components/data/dataset_module.py:184-187,207`
+- data-organizer#13 [medium] `espnet3/components/data/data_organizer.py:23-69,246-249`
+- data-organizer#14 [medium] `egs3/librispeech_100/asr/dataset/dataset.py:90-94,134-140`
+- data-organizer#16 [medium] `egs3/librispeech_100/asr/dataset/dataset.py:53-58`
+- data-organizer#17 [low] `espnet3/components/data/data_organizer.py:392-394`
+- data-organizer#18 [low] `espnet3/components/data/dataset_module.py:51-72,162-168`
+- data-organizer#19 [low] `egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml:41-49`
+- data-organizer#20 [low] `egs3/TEMPLATE/tts/conf/training.yaml:35-36`
+- data-organizer#21 [low] `espnet3/components/data/data_organizer.py:296-307`
+- data-organizer#22 [low] `espnet3/components/data/dataset.py:371-398`
+- data-organizer#23 [low] `espnet3/components/data/dataset.py:271-353`
+- data-organizer#24 [low] `espnet3/components/data/dataset.py:181-217`
+- data-organizer#25 [low] `espnet3/components/data/dataset.py:400-419`
+- data-organizer#26 [low] `espnet3/components/data/data_organizer.py:308-318,404-427`
+- data-organizer#27 [low] `espnet3/components/data/data_organizer.py:23-69`
+- egs3-recipes#02 [high] `egs3/TEMPLATE/asr/conf/training.yaml:46-53`
+- egs3-recipes#03 [medium] `egs3/TEMPLATE/asr/readme.md:13-14`
+- egs3-recipes#04 [low] `egs3/TEMPLATE/asr/conf/publication.yaml:27`
+- egs3-recipes#05 [low] `egs3/TEMPLATE/asr/src/app.py:1-111`
+- egs3-recipes#06 [low] `egs3/TEMPLATE/asr/src/inference.py:12-17`
+- lightning-module#01 [high] `espnet3/components/modeling/lightning_module.py:951-956`
+- lightning-module#02 [high] `espnet3/components/modeling/lightning_module.py:955-961`
+- lightning-module#03 [high] `espnet3/components/trainers/trainer.py:74-75`
+- lightning-module#04 [high] `espnet3/components/modeling/lightning_module.py:220-222`
+- lightning-module#05 [medium] `espnet3/components/modeling/lightning_module.py:705-711`
+- lightning-module#06 [medium] `espnet3/components/modeling/lightning_module.py:955-975`
+- lightning-module#07 [medium] `espnet3/components/modeling/lightning_module.py:1072-1078`
+- lightning-module#08 [medium] `egs3/TEMPLATE/asr/conf/training.yaml:145-198`
+- lightning-module#09 [medium] `espnet3/components/modeling/lightning_module.py:640-646`
+- lightning-module#10 [medium] `espnet3/components/modeling/lightning_module.py:623-631`
+- lightning-module#11 [medium] `espnet3/components/callbacks/ema.py:130-136`
+- lightning-module#12 [low] `espnet3/components/modeling/lightning_module.py:613-616`
+- lightning-module#13 [low] `egs3/TEMPLATE/asr/conf/training.yaml:150-161`
+- lightning-module#14 [low] `espnet3/components/modeling/lightning_module.py:905-913`
+- lightning-module#15 [low] `espnet3/components/modeling/optimization_spec.py:87-94`
+- lightning-module#16 [low] `espnet3/components/modeling/lightning_module.py:719-843`
+- lightning-module#17 [medium] `test/espnet3/components/modeling/test_model_with_optim_scheduler.py:787-806`
+- lightning-module#18 [low] `test/espnet3/components/modeling/test_model.py:196-223`
+- lightning-module#19 [low] `test/espnet3/components/modeling/test_model_with_optim_scheduler.py:706-735`
+- metrics#01 [high] `espnet3/systems/base/metric.py:24, 102-108`
+- metrics#02 [medium] `espnet3/components/metrics/base_metric.py:151-160`
+- metrics#03 [medium] `espnet3/systems/asr/metrics/wer.py:104-118`
+- metrics#04 [medium] `espnet3/systems/base/metric.py:90, 108-109`
+- metrics#05 [medium] `espnet3/systems/base/metric.py:17-39`
+- metrics#06 [medium] `espnet3/components/metrics/base_metric.py:12-14, 51`
+- metrics#07 [medium] `espnet3/systems/base/metric.py:76-78`
+- metrics#08 [low] `espnet3/systems/asr/metrics/wer.py:41-51`
+- metrics#09 [low] `espnet3/systems/base/metric.py:92-101`
+- metrics#10 [low] `egs3/TEMPLATE/asr/conf/metrics.yaml:50-52`
+- metrics#11 [low] `espnet3/components/metrics/base_metric.py:153-161`
+- metrics#12 [low] `test/espnet3/systems/asr/metrics/test_metrics.py:110, 123, 135`
+- metrics#13 [low] `test/espnet3/systems/base/test_metric.py:53-75`
+- metrics#14 [low] `espnet3/components/metrics/base_metric.py:166-175`
+- metrics#15 [low] `espnet3/systems/asr/metrics/wer.py:110-111`
+- metrics#16 [low] `espnet3/systems/base/metric.py:24-34`
+- misc-utils#01 [high] `espnet3/utils/writer_utils.py:155-161,192-203,211-218`
+- misc-utils#02 [medium] `espnet3/utils/logging_utils.py:479-485,664-667`
+- misc-utils#03 [medium] `espnet3/utils/download_utils.py:141-158`
+- misc-utils#04 [medium] `espnet3/utils/download_utils.py:104-138`
+- misc-utils#05 [medium] `espnet3/utils/download_utils.py:1-158`
+- misc-utils#06 [medium] `test/espnet3/utils/test_download.py:60-108`
+- misc-utils#07 [medium] `espnet3/utils/logging_utils.py:258-302`
+- misc-utils#08 [medium] `espnet3/utils/writer_utils.py:219-240`
+- misc-utils#09 [low] `espnet3/utils/scp_utils.py:76-86`
+- misc-utils#10 [low] `espnet3/utils/writer_utils.py:199-200`
+- misc-utils#11 [low] `espnet3/utils/logging_utils.py:359-376`
+- parallel#01 [medium] `espnet3/parallel/base_runner.py:336-357`
+- parallel#02 [medium] `espnet3/parallel/base_runner.py:398-401, 424-429, 383-394`
+- parallel#03 [medium] `espnet3/parallel/base_runner.py:442-456`
+- parallel#04 [medium] `espnet3/parallel/parallel.py:125-133`
+- parallel#05 [medium] `espnet3/parallel/inference_provider.py:112-122, 160-178`
+- parallel#06 [low] `espnet3/components/data/collect_stats.py:260-284`
+- parallel#07 [medium] `espnet3/systems/base/inference_runner.py:110-136, 296-313, 421-427`
+- parallel#08 [medium] `espnet3/systems/base/inference_provider.py:85-91`
+- parallel#09 [medium] `espnet3/parallel/base_runner.py:45-74`
+- parallel#10 [low] `espnet3/parallel/base_runner.py:255-266, 327-333`
+- parallel#11 [low] `espnet3/parallel/base_runner.py:383-394`
+- parallel#12 [low] `espnet3/parallel/parallel.py:131-133`
+- parallel#13 [low] `espnet3/parallel/parallel.py:335-355`
+- parallel#14 [low] `espnet3/systems/base/inference_runner.py:324-336`
+- parallel#15 [low] `espnet3/systems/base/inference_provider.py:207-216`
+- parallel#16 [medium] `test/espnet3/parallel/test_inference_runner.py:347-413`
+- parallel#17 [low] `espnet3/parallel/parallel.py:200-208, 288-296`
+- publication#01 [high] `espnet3/publication/demo/packing.py:232-280`
+- publication#02 [medium] `espnet3/publication/inference_model.py:440-530`
+- publication#03 [medium] `espnet3/utils/publication_utils.py:557-569`
+- publication#04 [medium] `espnet3/publication/demo/packing.py:27-94`
+- publication#05 [low] `espnet3/utils/publication_utils.py:149-217`
+- publication#06 [low] `espnet3/publication/demo/packing.py:315-410`
+- tq-A#01 [high] `espnet3/components/data/collect_stats.py:43-51`
+- tq-A#02 [high] `test/espnet3/components/data/test_collect_stats.py:52-78`
+- tq-A#03 [medium] `espnet3/components/data/collect_stats.py:548-554`
+- tq-A#04 [low] `test/espnet3/components/callbacks/test_ema.py:613-629`
+- tq-B#01 [high] `espnet3/parallel/base_runner.py:283-291`
+- tq-B#02 [medium] `espnet3/parallel/base_runner.py:283-291`
+- tq-B#03 [medium] `test/espnet3/parallel/test_inference_runner.py:291-357`
+- tq-B#04 [low] `test/espnet3/systems/base/test_inference_utils.py:1-14`
+- trainer-callbacks#01 [high] `espnet3/components/callbacks/default_callbacks.py:120-127,195-199,504-511`
+- trainer-callbacks#02 [high] `espnet3/components/callbacks/ema.py:130-136,146-149`
+- trainer-callbacks#03 [high] `espnet3/components/trainers/trainer.py:96-106`
+- trainer-callbacks#04 [medium] `egs3/TEMPLATE/asr/conf/training.yaml:202-204`
+- trainer-callbacks#05 [medium] `espnet3/systems/base/training.py:96-100`
+- trainer-callbacks#06 [medium] `espnet3/components/trainers/trainer.py:113-138`
+- trainer-callbacks#07 [medium] `test/espnet3/components/callbacks/test_callback.py:69-107,386-414`
+- trainer-callbacks#08 [low] `espnet3/components/callbacks/default_callbacks.py:295-305`
+- trainer-callbacks#09 [low] `espnet3/components/trainers/trainer.py:123-131`
+- trainer-callbacks#10 [low] `espnet3/components/trainers/trainer.py:47-53,98,133,138`
+- trainer-callbacks#11 [low] `espnet3/components/trainers/trainer.py:96-100`
+- trainer-callbacks#12 [low] `espnet3/components/callbacks/ema.py:53-62,151-154`
+- trainer-callbacks#13 [low] `espnet3/components/callbacks/default_callbacks.py:156-169`
+- trainer-callbacks#14 [low] `espnet3/components/callbacks/default_callbacks.py:271-279,342,365,386`
+- trainer-callbacks#15 [low] `espnet3/components/callbacks/default_callbacks.py:120-132,195-199`
+- tts-system#01 [high] `espnet3/systems/tts/system.py:437-499`
+- tts-system#02 [high] `espnet3/systems/base/training.py:62-65`
+- tts-system#03 [medium] `espnet3/systems/tts/system.py:363-371`
+- tts-system#04 [medium] `espnet3/systems/tts/system.py:41-58`
+- tts-system#05 [medium] `espnet3/systems/tts/system.py:171-180`
+- tts-system#06 [medium] `espnet3/systems/tts/system.py:145-149`
+- tts-system#07 [medium] `espnet3/systems/tts/system.py:128-134`
+- tts-system#08 [low] `espnet3/systems/tts/system.py:115-120`
+- tts-system#09 [low] `espnet3/systems/tts/system.py:149`
+- tts-system#10 [low] `espnet3/systems/tts/remove_long_short_runner.py:62-66`
+- tts-system#11 [low] `espnet3/systems/tts/system.py:63-67`
+- tts-system#12 [low] `egs3/TEMPLATE/tts/conf/training.yaml:29`
+- tts-system#13 [low] `espnet3/systems/tts/system.py:388-401`
+- tts-system#14 [low] `egs3/TEMPLATE/tts/conf/training.yaml:1-91`
+- tts-system#15 [low] `test/espnet3/systems/tts/test_system.py:254-309`

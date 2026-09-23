@@ -1,0 +1,320 @@
+{
+ "area": "tts-system",
+ "coverage": {
+  "files_fully_read": [
+   "espnet3/systems/tts/system.py",
+   "espnet3/systems/tts/remove_long_short_provider.py",
+   "espnet3/systems/tts/remove_long_short_runner.py",
+   "espnet3/systems/tts/__init__.py",
+   "egs3/TEMPLATE/tts/conf/training.yaml",
+   "egs3/TEMPLATE/tts/conf/inference.yaml",
+   "egs3/TEMPLATE/tts/conf/metrics.yaml",
+   "espnet3/systems/asr/system.py",
+   "espnet3/systems/base/system.py",
+   "espnet3/systems/base/training.py",
+   "espnet3/parallel/base_runner.py",
+   "espnet3/parallel/env_provider.py",
+   "espnet3/parallel/parallel.py",
+   "espnet3/utils/stages_utils.py",
+   "espnet3/utils/task_utils.py",
+   "egs3/TEMPLATE/asr/run.py",
+   "egs3/TEMPLATE/asr/conf/training.yaml",
+   "egs3/TEMPLATE/asr/conf/inference.yaml",
+   "egs3/TEMPLATE/asr/conf/metrics.yaml",
+   "test/espnet3/systems/tts/test_system.py",
+   "test/espnet3/systems/tts/test_remove_long_short.py"
+  ],
+  "files_skimmed": [
+   "espnet3/utils/config_utils.py (load_and_merge_config, _load_default_config, _resolve_egs3_path, self_name)",
+   "espnet3/components/data/collect_stats.py (collect_stats entry point, model build lines 130-170)",
+   "espnet3/components/modeling/lightning_module.py (collect_stats 1170-1203)",
+   "espnet3/components/trainers/trainer.py (collect_stats, best_model_criterion default)",
+   "espnet3/systems/base/inference.py (input_key handling)",
+   "espnet3/utils/run_utils.py (apply_training_experiment_context docstring)",
+   "egs2/TEMPLATE/tts1/tts.sh (lines 553-576 duration filter, 718-740 collect_stats flags)",
+   "espnet2/bin/tokenize_text.py (96-175)",
+   "espnet2/tasks/tts.py (normalize_choices, build_model 296-320)",
+   "espnet2/tasks/asr.py + espnet3/systems/asr/task.py + transducer_task.py (normalize defaults)",
+   "espnet2/layers/global_mvn.py (__init__)",
+   "espnet2/text/char_tokenizer.py (nonsplit handling)",
+   "egs3/mini_an4/asr/run.py, egs3/mini_an4/asr/conf/training*.yaml (normalize settings)",
+   "test/espnet3/systems/base/test_training.py (normalize pop assertions)"
+  ],
+  "files_not_read": [
+   "espnet3/components/data/collect_stats.py (feature aggregation internals)",
+   "espnet3/utils/run_utils.py (full body)",
+   "espnet3/utils/logging_utils.py",
+   "espnet2/tts/* model implementations"
+  ],
+  "tests_inspected": [
+   "test/espnet3/systems/tts/test_system.py (17 tests)",
+   "test/espnet3/systems/tts/test_remove_long_short.py (11 tests)",
+   "test/espnet3/systems/base/test_training.py (normalize pop assertions only, lines 39-68)"
+  ],
+  "notes": "All reproductions ran from SCRATCH with PYTHONPATH=REPO and the repo's .pixi python (the bare `python` cannot import espnet3). espnet2.tasks.tts cannot be imported in this environment (pyworld -> `pkg_resources` missing, same env issue behind the 2 known pytest failures), so the task-level normalize verification (repro_normalize.py) required a tiny pkg_resources stub; GlobalMVN behaviour was additionally verified directly without the stub. Dask/non-local parallel execution of RemoveLongShortRunner was not executed (no cluster); the per-split cluster and stale-lock-in-Dask claims are from reading base_runner.py/parallel.py, while the stale-lock crash itself was verified by simulating the leftover lock file in local mode. No TTS recipe exists in egs3 (TEMPLATE/tts has configs only, no run.py, no dataset builder producing the 4-column TSV manifest), so nothing in the repo exercises TTSSystem through run_stages/config merging or against a real TTS model; the collect_stats tests mock _build_trainer. The full test suite was not run (already running elsewhere); I ran no test files, only my own scripts. Notes written to review_log/findings/phase1_tts-system.md; one progress line appended to espnet3_fable_review.md."
+ },
+ "assumptions": [
+  "The manifest format `utt_id\\twav_path\\ttext\\tspeaker_id` documented in remove_long_short_provider._load_entries is the intended TTS manifest contract; no espnet3 DatasetBuilder in the repo produces it, so I assumed a recipe-provided create_dataset writes it.",
+  "I assumed espnet2-style TTS configs (normalize: global_mvn with normalize_conf.stats_file: ${stats_dir}/train/feats_stats.npz, as used by every egs2 VITS/Tacotron2/FastSpeech2 train config) are a realistic espnet3 TTS recipe config, since TEMPLATE/tts/training.yaml explicitly says recipes may host VITS and F5-TTS and `task` is meant to point at an ESPnet task class.",
+  "I treated the `--stages collect_stats train` single-invocation path as realistic because DEFAULT_STAGES in egs3/TEMPLATE/asr/run.py runs both in order in the same process on the same training_config object.",
+  "Severity for the base collect_stats in-place pop is 'high' rather than 'critical' because the three egs3 mini_an4 configs all set normalize: utterance_mvn, which equals the ASR task default, so no shipped recipe is observably affected today.",
+  "Findings 5 and 11 rest on BaseRunner semantics (another reviewer's area); I report them because the TTS stage is the consumer that hard-codes resume=False and advertises parallelism."
+ ],
+ "findings": [
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "437-499",
+   "category": "bug",
+   "severity": "high",
+   "summary": "TTSSystem.collect_stats leaves model.normalize untouched, so every espnet2-canonical TTS config (normalize: global_mvn with normalize_conf.stats_file under stats_dir) crashes on the first collect_stats run with FileNotFoundError, i.e. the chicken-and-egg the docstring claims to solve is only solved for `normalize: null` configs.",
+   "scenario": "training_config.task=espnet2.tasks.tts.TTSTask, model.normalize=global_mvn, model.normalize_conf.stats_file=${stats_dir}/train/feats_stats.npz (the shipped egs2 VITS/Tacotron2/FastSpeech2 shape), stats_dir empty -> TTSSystem.collect_stats() -> _build_trainer -> get_espnet_model -> TTSTask.build_model -> GlobalMVN(stats_file=...) -> np.load -> FileNotFoundError: 'exp/stats/train/feats_stats.npz' before any stats are collected. Same for pitch_normalize/energy_normalize (FastSpeech2). The base path (pop) fails too (TypeError missing stats_file); espnet2 tts.sh avoids both by passing --normalize none --pitch_normalize none --energy_normalize none to collect_stats. On a later re-run, stale stats from a previous collection are silently loaded instead.",
+   "evidence": "system.py:496-498 `# Build the trainer WITHOUT popping normalize/normalize_conf ... trainer = _build_trainer(self.training_config)`; espnet2/tasks/tts.py:307-309 `normalize_class = normalize_choices.get_class(args.normalize); normalize = normalize_class(**args.normalize_conf)`; espnet2/layers/global_mvn.py:37-40 `stats = np.load(stats_file)`; egs2/TEMPLATE/tts1/tts.sh:733-735 `--normalize none --pitch_normalize none --energy_normalize none`. Repro (SCRATCH/tts/repro_normalize.py): A: keys kept + global_mvn -> `FileNotFoundError [Errno 2] No such file or directory: 'exp/stats/train/feats_stats.npz'`; B: keys popped -> `TypeError GlobalMVN.__init__() missing 1 required positional argument: 'stats_file'`; C/D: normalize=None -> OK.",
+   "confidence": 0.9,
+   "related_files": [
+    "espnet3/systems/base/training.py",
+    "espnet2/tasks/tts.py",
+    "espnet2/layers/global_mvn.py",
+    "egs2/TEMPLATE/tts1/tts.sh",
+    "test/espnet3/systems/tts/test_system.py"
+   ],
+   "suggested_fix": "In collect_stats build the model from a deep copy of the config with model.normalize (and pitch_normalize/energy_normalize when present) explicitly set to None (not popped), mirroring espnet2 tts.sh; ideally do this once in base training.collect_stats so ASR and TTS share one correct behaviour and the TTS override disappears.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/base/training.py",
+   "lines": "62-65",
+   "category": "bug",
+   "severity": "high",
+   "summary": "Base collect_stats pops model.normalize/normalize_conf from the shared training_config in place, so a `train` stage executed in the same invocation silently trains with the task-default normalizer instead of the configured one.",
+   "scenario": "egs3/TEMPLATE/asr/run.py DEFAULT_STAGES runs collect_stats then train on the same BaseSystem/ASRSystem object. With model.normalize=global_mvn, normalize_conf.stats_file=... : collect_stats pops both keys from self.training_config.model; train() then calls _build_trainer(self.training_config) with model lacking normalize -> ASR task default utterance_mvn is built and save_espnet_config writes config.yaml with the default, so the divergence is invisible afterwards. TTS is unaffected only because TTSSystem overrides collect_stats without the pop.",
+   "evidence": "training.py:62-65 `if \"normalize\" in config.model: config.model.pop(\"normalize\")` operating on the caller's DictConfig (system.py:294 passes self.training_config); stages_utils.py:138-184 loops `fn()` over stages on one system; repro output: `before: {'normalize': 'global_mvn', 'normalize_conf': {...}}` / `after collect_stats (what a subsequent train() in the same run sees): {}`; espnet3/systems/asr/task.py:124-131 default=\"utterance_mvn\".",
+   "confidence": 0.85,
+   "related_files": [
+    "espnet3/systems/base/system.py",
+    "espnet3/utils/stages_utils.py",
+    "espnet3/systems/asr/task.py",
+    "espnet3/utils/task_utils.py"
+   ],
+   "suggested_fix": "Operate on `copy.deepcopy(config)` (or OmegaConf.create(OmegaConf.to_container(config))) inside collect_stats and set normalize to None on the copy rather than mutating the shared config.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "363-371",
+   "category": "bug",
+   "severity": "medium",
+   "summary": "create_token_list's default path indexes parts[2] without checking column count, so a blank line or a row with fewer than three tab-separated fields crashes with a bare IndexError, while the sibling vocab_builder branch and remove_long_short._load_entries both tolerate exactly those rows.",
+   "scenario": "Manifest `u1\\t/x.wav\\tab\\tspk\\n\\nu2\\t/y.wav\\tcd\\tspk\\n` (blank line, which remove_long_short on the same file skips silently) -> create_token_list() -> `IndexError: list index out of range` with no file/line context. Also `u2\\t/y.wav\\t\\n` (empty text, no speaker column): `line.rstrip()` eats the trailing tab so parts has 2 fields -> IndexError, whereas _load_entries treats it as an empty-text drop.",
+   "evidence": "system.py:365-367 `line = line.rstrip(); parts = line.split(\"\\t\"); text = parts[2]`; contrast system.py:308-310 `if len(parts) > 2 and parts[2].strip()` and provider.py:102-108 `stripped = line.rstrip(\"\\n\"); if not stripped: continue; if len(parts) < 3 ...`. Repro sections 1/1b: `EXC IndexError list index out of range` for both manifests; 1c shows _load_entries accepts them.",
+   "confidence": 0.95,
+   "related_files": [
+    "espnet3/systems/tts/remove_long_short_provider.py"
+   ],
+   "suggested_fix": "Reuse RemoveLongShortProvider._load_entries (or the same guard) to read the text column, and use rstrip(\"\\n\") instead of rstrip().",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "41-58",
+   "category": "design",
+   "severity": "medium",
+   "summary": "TTSSystem.__init__ takes **kwargs but also passes a hard-coded stage_log_mapping to BaseSystem, so any caller supplying stage_log_mapping (supported and merged by ASRSystem) gets a TypeError; the constructor signature, type hints and merge semantics diverge from ASRSystem/BaseSystem.",
+   "scenario": "TTSSystem(training_config=cfg, stage_log_mapping={\"infer\": \"training_config.exp_dir\"}) -> `TypeError: BaseSystem.__init__() got multiple values for keyword argument 'stage_log_mapping'`; the identical call on ASRSystem succeeds and merges. Only reachable from custom runners/subclasses (egs3/TEMPLATE/asr/run.py does not pass stage_log_mapping), so this is a misuse path, but the BaseSystem docstring advertises the override.",
+   "evidence": "system.py:46 `**kwargs,` and :53-57 `stage_log_mapping={...}, **kwargs` vs asr/system.py:60-63 `stage_log_mapping={\"train_tokenizer\": ..., **(stage_log_mapping or {})}`. Repro section 2: `ASR OK` / `TTS EXC TypeError ... multiple values for keyword argument 'stage_log_mapping'`.",
+   "confidence": 0.9,
+   "related_files": [
+    "espnet3/systems/asr/system.py",
+    "espnet3/systems/base/system.py"
+   ],
+   "suggested_fix": "Mirror ASRSystem: accept explicit publication_config/stage_log_mapping/demo_config parameters with type hints and merge the caller's mapping over the TTS defaults.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "171-180",
+   "category": "robustness",
+   "severity": "medium",
+   "summary": "remove_long_short hard-codes resume=False but never clears the previous shard directory, so a run killed hard (SIGKILL/OOM/SLURM time limit/Dask worker death) leaves split.N/lock behind and every subsequent re-run of the stage fails with a misleading 'already locked by another runner' error until the user manually deletes the lock.",
+   "scenario": "First run OK. Simulate a hard kill by leaving save_path/shards/train/split.0/lock in place (this is exactly the state after a worker or driver dies inside _run_one_shard, whose finally-unlock never executes) -> TTSSystem.remove_long_short() -> `RuntimeError: Shard is already locked by another runner: .../shards/train/split.0`. The message neither mentions the lock file nor that the stage is safe to restart; with resume=False the whole shard is recomputed anyway so the lock buys nothing.",
+   "evidence": "system.py:174-180 `RemoveLongShortRunner(..., output_dir=save_path / \"shards\", shard_subdir=split, resume=False)`; base_runner.py:347-351 `if not self._try_lock_shard(shard_dir): ... raise RuntimeError(\"Shard is already locked by another runner: \" ...)`; base_runner.py:393-394 unlock only in the worker-side finally. Repro section 4: `first run OK` then `rerun EXC RuntimeError Shard is already locked by another runner`.",
+   "confidence": 0.85,
+   "related_files": [
+    "espnet3/parallel/base_runner.py"
+   ],
+   "suggested_fix": "Since resume=False, remove (shutil.rmtree) `save_path/shards/<split>` before constructing the runner, or teach BaseRunner to treat locks as stale when resume=False / when the recorded pid is dead, and include the lock path and recovery instruction in the error.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "145-149",
+   "category": "design",
+   "severity": "medium",
+   "summary": "The filtered manifests written by remove_long_short are not consumed by any espnet3 code or config key; create_token_list defaults to the unfiltered data/manifest/train.tsv and the dataset/DataOrganizer must be re-pointed by hand, so a config that enables remove_long_short can still train on unfiltered data with no warning.",
+   "scenario": "Recipe sets remove_long_short.save_path=data/manifest_filtered and runs the stage; dataset.train[].data_src_args still reference the recipe Dataset's default manifest (data/manifest/train.tsv) and create_token_list.manifest_path is left at its default -> the token list and training set silently include the utterances the stage just removed. Nothing in espnet3/ or egs3/ reads remove_long_short.save_path (grep: only the stage_log_mapping does), and the two TTS stages do not chain to each other by default.",
+   "evidence": "system.py:147 default `f\"data/manifest/{split}.tsv\"`, :149 `filtered_manifest_path = save_path / manifest_path.name`, :285 create_token_list default `\"data/manifest/train.tsv\"`; grep -rn remove_long_short across espnet3/egs3 shows no consumer besides system.py:54 (stage log dir). BaseSystem.create_dataset (base/system.py:249-272) has no hook for post-filtering either.",
+   "confidence": 0.6,
+   "related_files": [
+    "espnet3/systems/base/system.py",
+    "egs3/TEMPLATE/tts/conf/training.yaml"
+   ],
+   "suggested_fix": "Either make the filtered dir the single source of truth (e.g. create_token_list default manifest under remove_long_short.save_path and document that dataset entries must point there) or have the stage emit a keep-list (utt ids) that the DataOrganizer/preprocessor applies, and log a warning when a later stage reads a manifest that has a filtered sibling.",
+   "verified_by_execution": false
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "128-134",
+   "category": "robustness",
+   "severity": "medium",
+   "summary": "Optional keys are read with DictConfig.get(key, default), which returns None for an explicit `null`, so TEMPLATE-style null placeholders (the convention TEMPLATE/tts/training.yaml documents) for splits / token_type / add_symbol / cutoff crash with TypeError or TypeCheckError instead of falling back to the defaults.",
+   "scenario": "remove_long_short: {save_path: ..., min_wav_duration: 1, max_wav_duration: 4, splits: null} -> `TypeError: 'NoneType' object is not iterable` at `for split in splits`. create_token_list: {..., token_type: null} -> `TypeCheckError: argument \"token_type\" (None) is not an instance of str`; add_symbol: null -> `None + ...` TypeError at line 388; cutoff: null -> `x[1] > None` TypeError at line 377. The same header says 'Everything ... is left null for the recipe config to fill in', so a recipe author who scaffolds these sections with nulls hits this. Hypothetical config, no shipped TTS recipe.",
+   "evidence": "system.py:128 `splits = remove_long_short_config.get(\"splits\", [\"train\", \"valid\", \"test\"])`, :333 `.get(\"token_type\", \"char\")`, :344-347 `.get(\"add_symbol\", [])`, `.get(\"cutoff\", 0)`; TEMPLATE/tts/conf/training.yaml:12-13. Repro section 3: `splits:null EXC TypeError 'NoneType' object is not iterable`; `nulls EXC TypeCheckError argument \"token_type\" (None) is not an instance of str`.",
+   "confidence": 0.7,
+   "related_files": [
+    "egs3/TEMPLATE/tts/conf/training.yaml",
+    "espnet3/systems/base/system.py"
+   ],
+   "suggested_fix": "Normalize `None` to the default for optional keys (e.g. a small helper `cfg.get(k) if cfg.get(k) is not None else default`) and validate types up front with clear messages.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "115-120",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "min_wav_duration/max_wav_duration are not validated (min < max, non-negative, numeric); an inverted pair drops every utterance and silently writes empty filtered manifests.",
+   "scenario": "remove_long_short: {min_wav_duration: 10, max_wav_duration: 1} -> stage completes 'successfully', filtered train.tsv is 0 bytes (only the INFO line 'kept 0' hints at it); downstream stages then fail obscurely on an empty dataset. A string value like '2.0' would instead raise a TypeError inside the worker.",
+   "evidence": "system.py:115-120 only checks presence via _get_required_config; runner.py:66 `keep = not (duration <= min_duration or duration >= max_duration)`. Repro section 5: `filtered bytes: 0`.",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/tts/remove_long_short_runner.py"
+   ],
+   "suggested_fix": "Validate `0 <= min < max` and numeric types before starting, and raise (or at least warn) when a split ends with zero kept entries.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "149",
+   "category": "bug",
+   "severity": "low",
+   "summary": "Filtered output is named after the input manifest's basename, so manifest_paths entries with the same filename in different directories silently overwrite each other.",
+   "scenario": "manifest_paths: {train: A/manifest.tsv, valid: B/manifest.tsv} -> both splits write save_path/manifest.tsv; the valid pass overwrites the train pass and the log still reports both as saved. Config-dependent misuse; the documented default (data/manifest/{split}.tsv) does not collide.",
+   "evidence": "system.py:149 `filtered_manifest_path = save_path / manifest_path.name`. Repro section 6: `['manifest.tsv', 'shards'] -> validutt`.",
+   "confidence": 0.85,
+   "related_files": [],
+   "suggested_fix": "Name outputs by split (`save_path / f\"{split}.tsv\"`) or detect duplicate basenames and raise.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/remove_long_short_runner.py",
+   "lines": "62-66",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "One missing or unreadable wav aborts the whole split (and the whole stage) with a raw soundfile error that does not identify the utt_id or manifest line, and there is no option to skip/report bad rows.",
+   "scenario": "valid.tsv contains one row whose wav path does not exist -> remove_long_short() raises `soundfile.LibsndfileError: Error opening '/no/such.wav': System error.`; the user has to grep the manifest for the path to find the offending utterance, and in Dask mode the error surfaces via future.result() after other shards already ran.",
+   "evidence": "runner.py:62-63 `utt_id, wav_path, _ = entries[idx]; duration = sf.info(wav_path).duration` with no try/except; repro section 7: `EXC LibsndfileError Error opening '/no/such.wav': System error.`",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/tts/system.py"
+   ],
+   "suggested_fix": "Wrap sf.info in try/except, re-raise with utt_id/manifest context, or record keep=False plus an error field and report the count in the summary log.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "63-67",
+   "category": "docs-mismatch",
+   "severity": "low",
+   "summary": "The docstring says durations are checked 'in parallel', but with the TEMPLATE default parallel.env=local BaseRunner plans exactly one shard and runs sequentially on the driver regardless of n_workers, and in non-local mode a fresh Dask cluster is created and torn down once per split.",
+   "scenario": "parallel: {env: local, n_workers: 8} -> _plan_shards returns 1 shard (num_shards forced to 1 for env local) and __call__ dispatches to _run_local: all wav headers are read serially. parallel: {env: slurm, n_workers: 8} with splits [train, valid, test] -> three separate get_client() cluster lifecycles.",
+   "evidence": "system.py:65-66 'in parallel, via RemoveLongShortProvider/Runner'; base_runner.py:286-289 `if par_config is not None and env not in (\"local\",): num_shards = ...`, :475-478 env==local -> _run_local; system.py:142-188 constructs and calls a new runner per split.",
+   "confidence": 0.75,
+   "related_files": [
+    "espnet3/parallel/base_runner.py",
+    "egs3/TEMPLATE/tts/conf/training.yaml"
+   ],
+   "suggested_fix": "Document that env=local is sequential (or use a LocalCluster when n_workers>1), and consider processing all splits under one runner/cluster.",
+   "verified_by_execution": false
+  },
+  {
+   "file": "egs3/TEMPLATE/tts/conf/training.yaml",
+   "lines": "29",
+   "category": "design",
+   "severity": "low",
+   "summary": "TTS TEMPLATE places stats under ${exp_dir}/stats while the ASR TEMPLATE uses ${recipe_dir}/exp/stats, so the two systems disagree on whether stats are per-experiment or shared per recipe.",
+   "scenario": "A user copying an ASR recipe's habit of running collect_stats once (conf/train_a.yaml) and training several configs (conf/train_b.yaml, ...) gets `${stats_dir}/train/feats_shape` missing under TTS because exp_tag=${self_name:} makes stats_dir depend on the config file name; conversely an ASR user changing frontend settings silently reuses stale shared stats.",
+   "evidence": "egs3/TEMPLATE/tts/conf/training.yaml:27-29 `exp_tag: ${self_name:} ... stats_dir: ${exp_dir}/stats` vs egs3/TEMPLATE/asr/conf/training.yaml:27-29 `stats_dir: ${recipe_dir}/exp/stats`.",
+   "confidence": 0.6,
+   "related_files": [
+    "egs3/TEMPLATE/asr/conf/training.yaml"
+   ],
+   "suggested_fix": "Pick one convention (per-experiment is safer) and apply it to both templates with a comment explaining it.",
+   "verified_by_execution": false
+  },
+  {
+   "file": "espnet3/systems/tts/system.py",
+   "lines": "388-401",
+   "category": "bug",
+   "severity": "low",
+   "summary": "add_nonsplit_symbol both configures the tokenizer to emit the symbol (so it is counted from the text) and unconditionally inserts it again, producing a duplicate entry in tokens.txt that TokenIDConverter rejects at training time; inherited verbatim from espnet2 tokenize_text but advertised in the espnet3 docstring and untested.",
+   "scenario": "Manifest text `ab<sc>cd`, create_token_list with add_symbol [<blank>:0, <unk>:1] and add_nonsplit_symbol [<sc>:2] -> tokens.txt = [<blank>, <unk>, <sc>, a, b, <sc>, c, d]; TokenIDConverter(token_list) -> `RuntimeError: Symbol \"<sc>\" is duplicated` when the preprocessor is built for training.",
+   "evidence": "system.py:350-359 passes `nonsplit_symbol=add_nonsplit_symbol` to build_tokenizer (char_tokenizer.py:33-37 strips ':idx' and emits the symbol as a token), then :388-401 inserts every add_nonsplit_symbol entry again. Repro section 9 output `['<blank>', '<unk>', '<sc>', 'a', 'b', '<sc>', 'c', 'd']`; TokenIDConverter on that list -> `RuntimeError Symbol \"<sc>\" is duplicated`.",
+   "confidence": 0.75,
+   "related_files": [
+    "espnet2/bin/tokenize_text.py",
+    "espnet2/text/char_tokenizer.py",
+    "espnet2/text/token_id_converter.py"
+   ],
+   "suggested_fix": "Drop nonsplit symbols from `counter` before inserting them (or skip the insert when already present), and add a test.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "egs3/TEMPLATE/tts/conf/training.yaml",
+   "lines": "1-91",
+   "category": "docs-mismatch",
+   "severity": "low",
+   "summary": "The TTS TEMPLATE has no remove_long_short / create_token_list sections and no run.py, so the two TTS-specific stages that TTSSystem exists for are in no stage list, have no config scaffold, and their stage_log_mapping entries silently fall back to exp_dir.",
+   "scenario": "A recipe author starting from egs3/TEMPLATE/tts must write their own runner (egs3/TEMPLATE/asr/run.py DEFAULT_STAGES has no remove_long_short/create_token_list and hard-codes ASR stage names in the guardrail dict) and invent the remove_long_short/create_token_list sections from the docstrings; TTSSystem.__init__ resolves 'training_config.remove_long_short.save_path' to None for the template and logs land in exp_dir instead of the documented save_path.",
+   "evidence": "training.yaml lines 15-91 contain no remove_long_short/create_token_list keys; `ls egs3/TEMPLATE/tts` = __init__.py, conf/ only; system.py:53-56 stage_log_mapping refers to those keys; base/system.py:147-150 skips unresolved refs; asr/run.py:27-38 DEFAULT_STAGES and :185-201 required_configs.",
+   "confidence": 0.8,
+   "related_files": [
+    "egs3/TEMPLATE/asr/run.py",
+    "espnet3/systems/tts/system.py",
+    "espnet3/systems/base/system.py"
+   ],
+   "suggested_fix": "Add commented remove_long_short/create_token_list sections to the template and a TTS run.py (or make the shared runner's stage list system-driven).",
+   "verified_by_execution": false
+  },
+  {
+   "file": "test/espnet3/systems/tts/test_system.py",
+   "lines": "254-309",
+   "category": "test-gap",
+   "severity": "low",
+   "summary": "The collect_stats tests replace _build_trainer with a recorder and assert only that model.normalize 'survives' into the trainer config, which pins the exact behaviour that crashes for global_mvn configs, and nothing exercises TTSSystem end to end (run_stages + TEMPLATE merge), Dask mode, zero-length/missing wavs, stale locks, or a real TTS task model.",
+   "scenario": "test_collect_stats_preserves_null_normalize passes while a real config with normalize: global_mvn fails in _build_trainer (finding 1); no test covers a manifest whose wav is missing/0 s, a leftover lock, min>=max, blank manifest lines in create_token_list, add_nonsplit_symbol, or a non-local parallel env; there is no TTS recipe in egs3 to catch config/code drift.",
+   "evidence": "test_system.py:262-280 `monkeypatch.setattr(sysmod, \"_build_trainer\", fake_build_trainer)`; :294-309 asserts `model_cfg.normalize is None` only; test_remove_long_short.py:53-66 fixture uses 0.5/2/5 s wavs only; grep shows no other TTS tests and no egs3/*/tts recipe.",
+   "confidence": 0.85,
+   "related_files": [
+    "test/espnet3/systems/tts/test_remove_long_short.py",
+    "espnet3/systems/tts/system.py"
+   ],
+   "suggested_fix": "Add a collect_stats test against a real (tiny) espnet2 TTS task config with normalize: global_mvn and an empty stats_dir, plus tests for blank manifest lines, missing wav, stale lock, min>=max and a two-shard (non-local) plan via a fake parallel config.",
+   "verified_by_execution": false
+  }
+ ],
+ "test_file_assessments": [
+  {
+   "file": "test/espnet3/systems/tts/test_system.py",
+   "n_tests": 17,
+   "n_meaningful": 15,
+   "n_problematic": 2,
+   "notes": "remove_long_short and create_token_list tests are real end-to-end checks on tmp manifests/wavs (filtering, single-split string, missing config/manifest, add_symbol positions, vocab_builder, vocabulary_size, empty manifest warning, parallel forwarding, default manifest location). The two collect_stats tests (test_collect_stats_delegates_to_trainer, test_collect_stats_preserves_null_normalize) mock _build_trainer and _ensure_directories, so they only verify that the config object is passed through unchanged; the second one enshrines the behaviour that breaks global_mvn configs. Not covered: blank/short manifest rows in create_token_list, add_nonsplit_symbol, min>=max, basename collision, missing/zero-length wav, stale lock, non-local parallel env."
+  },
+  {
+   "file": "test/espnet3/systems/tts/test_remove_long_short.py",
+   "n_tests": 11,
+   "n_meaningful": 11,
+   "n_problematic": 0,
+   "notes": "Provider and runner unit tests are accurate and check boundary semantics (exactly-at-bound dropped), batching, shard persistence (results.jsonl + done), and merge ordering with a shard lacking results.jsonl. All run in local mode with resume=False; no test for missing/unreadable wav, 0-second wav, stale lock, empty index list, or Dask/multi-shard planning."
+  }
+ ]
+}

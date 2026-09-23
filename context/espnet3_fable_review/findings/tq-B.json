@@ -1,0 +1,124 @@
+{
+  "area": "tq-B",
+  "coverage": {
+    "files_fully_read": [
+      "test/espnet3/systems/asr/metrics/test_metrics.py",
+      "test/espnet3/systems/asr/test_asr_inference.py",
+      "test/espnet3/systems/asr/test_asr_transducer.py",
+      "test/espnet3/systems/asr/test_system.py",
+      "test/espnet3/systems/asr/test_task.py",
+      "test/espnet3/systems/asr/tokenizer/test_sentencepiece.py",
+      "test/espnet3/systems/base/test_base_system.py",
+      "test/espnet3/systems/base/test_inference.py",
+      "test/espnet3/systems/base/test_inference_runner.py",
+      "test/espnet3/systems/base/test_inference_utils.py",
+      "test/espnet3/systems/base/test_metric.py",
+      "test/espnet3/systems/base/test_training.py",
+      "test/espnet3/systems/tts/test_remove_long_short.py",
+      "test/espnet3/systems/tts/test_system.py",
+      "test/espnet3/parallel/test_base_runner_batch.py",
+      "test/espnet3/parallel/test_inference_provider.py",
+      "test/espnet3/parallel/test_inference_runner.py",
+      "test/espnet3/parallel/test_parallel.py",
+      "test/espnet3/publication/test_inference_model.py",
+      "test/espnet3/demo/test_app_builder.py",
+      "test/espnet3/demo/test_pack.py"
+    ],
+    "files_skimmed": [
+      "espnet3/systems/tts/system.py",
+      "espnet3/parallel/base_runner.py",
+      "espnet3/parallel/parallel.py",
+      "espnet3/systems/base/training.py"
+    ],
+    "files_not_read": [],
+    "tests_inspected": [
+      "all ~241 test functions across the 21 assigned files"
+    ],
+    "notes": "Initial lead flagged test/espnet3/systems/tts/test_system.py:254-309 (collect_stats normalize-preservation tests) as a suspected pinning/hollow test. Investigated in depth and mutation-verified it is NOT hollow: TTSSystem.collect_stats (espnet3/systems/tts/system.py) contains no normalize-popping logic at all (unlike base collect_stats), so the test is a genuine regression guard against someone re-delegating to the base implementation. Mutation (reintroducing config.model.pop('normalize'/'normalize_conf') into TTSSystem.collect_stats) made test_collect_stats_preserves_null_normalize fail as expected (1 failed, 2 passed) -- see scratch mut_result.txt. Only mocks _build_trainer/_ensure_directories, both legitimate heavy/external dependencies. Not reported as a finding.\n\nThe genuine version of the 'vacuous parallel test' lead was found one level down the stack: espnet3/parallel/base_runner.py's _plan_shards ignores n_workers whenever parallel.env=='local' (always num_shards=1), which is exactly what test/espnet3/parallel/test_inference_runner.py's two 'parallel shards' tests exercise (env='local', n_workers=2/3) -- confirmed live via a python snippet (env=local,n_workers=2 -> 1 shard; env=local_gpu,n_workers=2 -> 2 shards). Reported as both a design finding (source) and a test-quality finding (the two tests).\n\nAll other tests in scope were traced to confirm they call real espnet3 SUT code and assert on behaviour that would change if that code broke; only genuinely external dependencies (dask distributed client/workers, HfApi, gradio widgets, model construction via InferenceProvider.build_model, Lightning trainer construction via _build_trainer) are mocked, which is legitimate per the review instructions."
+  },
+  "assumptions": [
+    "Treated construction of a real Dask LocalCluster/client (test_parallel.py, dask-gated by _DASK_AVAILABLE) and mocking of HfApi/gradio/InferenceProvider.build_model/_build_trainer as legitimate external-dependency mocking, not SUT mocking.",
+    "Counted parametrized test functions once (by function name) in test_file_assessments n_tests, not once per parametrize case."
+  ],
+  "test_file_assessments": [
+    {"file": "test/espnet3/systems/asr/metrics/test_metrics.py", "n_tests": 10, "n_meaningful": 10, "n_problematic": 0, "notes": "Real WER/CER/TER computation via jiwer (or asserts the RuntimeError path when jiwer absent); only jiwer/sentencepiece are external deps."},
+    {"file": "test/espnet3/systems/asr/test_asr_inference.py", "n_tests": 12, "n_meaningful": 12, "n_problematic": 0, "notes": "InferenceProvider.build_model/build_dataset device-selection logic and InferenceRunner.forward exercised for real; only hydra `instantiate` is monkeypatched."},
+    {"file": "test/espnet3/systems/asr/test_asr_transducer.py", "n_tests": 9, "n_meaningful": 9, "n_problematic": 0, "notes": "Exercises real espnet2 ASRTransducerTask build_model/build_collate_fn/build_preprocess_fn; legitimate cross-package target for espnet3's transducer task wrapper."},
+    {"file": "test/espnet3/systems/asr/test_system.py", "n_tests": 10, "n_meaningful": 10, "n_problematic": 0, "notes": "Only import_module/train_sentencepiece are stubbed (external tokenizer training + dynamic recipe import); ASRSystem.train_tokenizer's own validation/orchestration logic runs for real."},
+    {"file": "test/espnet3/systems/asr/test_task.py", "n_tests": 10, "n_meaningful": 10, "n_problematic": 0, "notes": "Real ASRTask wiring; two tests importorskip('whisper') which is absent in this env (environment-appropriate skip, not hollow)."},
+    {"file": "test/espnet3/systems/asr/tokenizer/test_sentencepiece.py", "n_tests": 2, "n_meaningful": 2, "n_problematic": 0, "notes": "Real sentencepiece training/end-to-end special-token insertion."},
+    {"file": "test/espnet3/systems/base/test_base_system.py", "n_tests": 16, "n_meaningful": 16, "n_problematic": 0, "notes": "DummyBuilder mocks are the dynamically-loaded per-recipe DatasetBuilder (external/pluggable by design); BaseSystem.create_dataset's own dedup/orchestration logic is real and asserted via call-order."},
+    {"file": "test/espnet3/systems/base/test_inference.py", "n_tests": 25, "n_meaningful": 25, "n_problematic": 0, "notes": "Extensive real infer() pipeline coverage: scp writing, artifacts, idx_key resolution, error paths. set_parallel is stubbed but the local sequential inference path underneath runs for real."},
+    {"file": "test/espnet3/systems/base/test_inference_runner.py", "n_tests": 12, "n_meaningful": 12, "n_problematic": 0, "notes": "Real InferenceRunner.forward / resolve_idx_key / _load_output_fn logic."},
+    {"file": "test/espnet3/systems/base/test_inference_utils.py", "n_tests": 1, "n_meaningful": 1, "n_problematic": 1, "notes": "Real _materialize_output_value call, but this single test is an almost verbatim duplicate of test_inference.py::test_materialize_output_value_rejects_top_level_list -- see finding."},
+    {"file": "test/espnet3/systems/base/test_metric.py", "n_tests": 13, "n_meaningful": 13, "n_problematic": 0, "notes": "Real measure()/BaseMetric.iter_inputs SCP parsing and test-set discovery."},
+    {"file": "test/espnet3/systems/base/test_training.py", "n_tests": 6, "n_meaningful": 6, "n_problematic": 0, "notes": "_build_trainer is mocked (heavy Lightning construction); collect_stats/train's own orchestration (parallel setup, seeding, precision, config popping, save_config, fit kwargs) is real."},
+    {"file": "test/espnet3/systems/tts/test_remove_long_short.py", "n_tests": 11, "n_meaningful": 11, "n_problematic": 0, "notes": "Real duration filtering against actual wav files via soundfile; real shard persistence/merge."},
+    {"file": "test/espnet3/systems/tts/test_system.py", "n_tests": 17, "n_meaningful": 17, "n_problematic": 0, "notes": "Investigated in depth per the lead; the collect_stats tests are genuine regression guards (mutation-verified, see coverage.notes), not pinning. Rest of file (remove_long_short, create_token_list) runs real filesystem-backed logic."},
+    {"file": "test/espnet3/parallel/test_base_runner_batch.py", "n_tests": 13, "n_meaningful": 13, "n_problematic": 0, "notes": "Real BaseRunner batching/resume/locking/manifest logic (env defaults to local/1-shard, which is appropriate for testing this orchestration in-process)."},
+    {"file": "test/espnet3/parallel/test_inference_provider.py", "n_tests": 2, "n_meaningful": 2, "n_problematic": 0, "notes": "Real env-building/caching logic in parallel.InferenceProvider."},
+    {"file": "test/espnet3/parallel/test_inference_runner.py", "n_tests": 9, "n_meaningful": 7, "n_problematic": 2, "notes": "test_parallel_shards_offline_with_base_runner and test_parallel_shards_streaming_with_base_runner set n_workers=2/3 with env='local', which base_runner.py always forces to 1 shard -- see finding; the offline/streaming STFT logic itself is genuinely tested elsewhere in the file."},
+    {"file": "test/espnet3/parallel/test_parallel.py", "n_tests": 5, "n_meaningful": 5, "n_problematic": 0, "notes": "Exercises a real local Dask cluster (skipped if Dask absent); genuine worker-env wrapping/conflict-detection behaviour."},
+    {"file": "test/espnet3/publication/test_inference_model.py", "n_tests": 36, "n_meaningful": 36, "n_problematic": 0, "notes": "Thorough real coverage of InferenceModel.from_packed/from_pretrained/forward/forward_batch including fallback-on-exception logic; only InferenceProvider.build_model and ModelDownloader (external HF hub) are mocked."},
+    {"file": "test/espnet3/demo/test_app_builder.py", "n_tests": 9, "n_meaningful": 9, "n_problematic": 0, "notes": "Real demo session/config loading and Gradio component wiring (skips cleanly via importorskip when gradio absent for two tests; FakeAudio/FakeTextbox mock only the external gradio widget classes)."},
+    {"file": "test/espnet3/demo/test_pack.py", "n_tests": 11, "n_meaningful": 11, "n_problematic": 0, "notes": "Real filesystem packing (include/exclude globs, symlinking, README templating) and real upload_demo logic; only HfApi (external HF Hub) is mocked."}
+  ],
+  "findings": [
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "283-291",
+      "category": "test-gap",
+      "severity": "high",
+      "summary": "BaseRunner._run_parallel_dask, the only code path that actually dispatches shards to Dask workers (including its exception/client.cancel(futures) cleanup), is never exercised by any test under test/espnet3/parallel/** or test/espnet3/systems/**.",
+      "scenario": "Every BaseRunner/InferenceRunner test in scope either passes no `parallel` config (get_parallel_config() returns None) or explicitly sets env='local', both of which route through __call__'s `self._run_local(pending)` branch (base_runner.py:475-478). A regression in _run_parallel_dask -- e.g. the client.cancel(futures) exception-cleanup at base_runner.py:~450-465, or a bug in how worker_setup_fn/env are threaded through wrap_func_with_worker_env -- would ship with the full test suite green.",
+      "evidence": "grep -rln \"_run_parallel_dask\" test/espnet3/ espnet3/ only matches espnet3/parallel/base_runner.py itself, never a test file. __call__ dispatch: `if par_config is None or getattr(par_config, 'env', 'local') == 'local': self._run_local(pending) else: self._run_parallel_dask(pending)` (base_runner.py:474-477).",
+      "suggested_fix": "Add a BaseRunner test that sets parallel.env to a non-'local' value (e.g. 'local_gpu' or a stubbed custom env with n_workers>1) so _plan_shards produces >1 shard and _run_parallel_dask actually runs against a real local Dask client (test_parallel.py already shows how to spin one up), including a case that forces a worker exception to cover the cancel-on-failure path.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": ["test/espnet3/parallel/test_base_runner_batch.py", "test/espnet3/parallel/test_inference_runner.py", "test/espnet3/parallel/test_parallel.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "283-291",
+      "category": "design",
+      "severity": "medium",
+      "summary": "BaseRunner._plan_shards silently ignores parallel.n_workers whenever parallel.env=='local', always producing exactly 1 shard, with no warning that the configured worker count was not honoured.",
+      "scenario": "A recipe author sets `parallel: {env: local, n_workers: 8}` (a plausible config for local multiprocessing during e.g. remove_long_short duration scanning or STFT-style inference) expecting 8-way local parallelism. Every item is instead processed sequentially in one shard on the driver process, silently, with no log line or error indicating n_workers was not used.",
+      "evidence": "espnet3/parallel/base_runner.py:283-291: `num_shards = 1; if par_config is not None and env not in (\"local\",): num_shards = int(getattr(par_config, \"n_workers\", 1))`. Verified live: `set_parallel({'env':'local','n_workers':2}); r._plan_shards(range(10))` -> 1 shard, while `env='local_gpu'` with the same n_workers=2 -> 2 shards.",
+      "suggested_fix": "Either honour n_workers for env='local' by chunking across a local process/thread pool (matching what the two 'parallel shards' tests in test_inference_runner.py appear to assume), or log a warning when n_workers>1 is configured together with env='local' so the mismatch is visible instead of silent.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": ["test/espnet3/parallel/test_inference_runner.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "test/espnet3/parallel/test_inference_runner.py",
+      "lines": "291-357",
+      "category": "test-quality",
+      "severity": "medium",
+      "summary": "test_parallel_shards_offline_with_base_runner and test_parallel_shards_streaming_with_base_runner set n_workers=2/3 with env='local' to claim they test parallel shard dispatch, but env='local' forces exactly 1 shard (see base_runner.py finding above), so the tests only ever exercise the single-shard sequential path and would pass identically with n_workers removed.",
+      "scenario": "If BaseRunner's multi-shard splitting (_plan_shards for non-local envs) or the Dask dispatch path (_run_parallel_dask) were broken, these two tests would still pass: `shard_dirs = sorted(base.glob('split.*')); assert len(shard_dirs) >= 1` is satisfied trivially by the single shard='split.0' that _run_local always produces under env='local'.",
+      "evidence": "test_inference_runner.py:291-303 and :325-337 build `OmegaConf.create({'env': 'local', 'n_workers': 2 (or 3), 'options': {...}})` and pass it to set_parallel, then only assert `len(shard_dirs) >= 1` (line 317, 351) rather than `== n_workers` or comparing against the actual configured worker count.",
+      "suggested_fix": "Either switch these tests to a non-'local' env (with a stubbed/local Dask client) and assert len(shard_dirs) == n_workers to actually cover multi-shard dispatch, or rename/re-scope them as single-shard offline/streaming smoke tests and rely on a separate test (per the test-gap finding above) for real parallel dispatch.",
+      "confidence": 0.8,
+      "test_name": "test_parallel_shards_offline_with_base_runner, test_parallel_shards_streaming_with_base_runner",
+      "related_files": ["espnet3/parallel/base_runner.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "test/espnet3/systems/base/test_inference_utils.py",
+      "lines": "1-14",
+      "category": "test-quality",
+      "severity": "low",
+      "summary": "test_materialize_output_value_rejects_top_level_lists is an almost verbatim duplicate of test_inference.py::test_materialize_output_value_rejects_top_level_list (same SUT call with the same arguments, same assertion).",
+      "scenario": "No missed regression results from this on its own (the behaviour is still covered), but it is dead weight: two files must be kept in sync for one behaviour, and a reviewer scanning test_inference_utils.py could mistake a 14-line, single-test file for a real coverage gap in _materialize_output_value's other branches (audio/text/json/custom-writer artifact types), which are actually only covered in test_inference.py.",
+      "evidence": "test/espnet3/systems/base/test_inference_utils.py:6-13 calls `_materialize_output_value(idx_value=\"utt1\", field_key=\"hyp\", value=[\"h1\",\"h2\"], output_dir=tmp_path, artifact_config=None)` and expects TypeError match 'Top-level list outputs are not supported'; test/espnet3/systems/base/test_inference.py:338-346 calls the same function with value=[\"hello\"] and the identical assertion.",
+      "suggested_fix": "Delete one of the two tests (keep the one colocated with the rest of the artifact-materialization tests in test_inference.py), or repurpose test_inference_utils.py to cover other _materialize_output_value branches not exercised elsewhere.",
+      "confidence": 0.7,
+      "test_name": "test_materialize_output_value_rejects_top_level_lists",
+      "related_files": ["test/espnet3/systems/base/test_inference.py"],
+      "verified_by_execution": false
+    }
+  ]
+}

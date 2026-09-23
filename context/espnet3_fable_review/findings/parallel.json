@@ -1,0 +1,321 @@
+{
+  "area": "parallel",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/parallel/__init__.py",
+      "espnet3/parallel/base_runner.py",
+      "espnet3/parallel/env_provider.py",
+      "espnet3/parallel/inference_provider.py",
+      "espnet3/parallel/parallel.py",
+      "espnet3/systems/base/inference_runner.py",
+      "espnet3/systems/base/inference_provider.py",
+      "espnet3/systems/tts/remove_long_short_runner.py",
+      "espnet3/systems/tts/remove_long_short_provider.py",
+      "test/espnet3/parallel/test_parallel.py",
+      "test/espnet3/parallel/test_base_runner_batch.py",
+      "test/espnet3/parallel/test_inference_provider.py",
+      "test/espnet3/parallel/test_inference_runner.py",
+      "doc/espnet3/parallel.md"
+    ],
+    "files_skimmed": [
+      "espnet3/systems/base/inference.py (60-200)",
+      "espnet3/systems/tts/system.py (110-190, 420-440)",
+      "espnet3/systems/base/training.py (45-90)",
+      "espnet3/components/data/collect_stats.py (205-300, 480-565)"
+    ],
+    "files_not_read": [
+      "espnet3/components/data/collect_stats.py (CollectStatsRunner body)",
+      "espnet3/publication/inference_model.py",
+      "test/espnet3/systems/base/test_inference.py (only test names listed)"
+    ],
+    "tests_inspected": [
+      "test/espnet3/parallel/test_parallel.py",
+      "test/espnet3/parallel/test_base_runner_batch.py",
+      "test/espnet3/parallel/test_inference_provider.py",
+      "test/espnet3/parallel/test_inference_runner.py"
+    ],
+    "notes": "Checked OK: _plan_shards splits into contiguous chunks with shard_id in order and concatenate_shard_files/InferenceRunner.merge preserve item order (verified with fake items: 10 items/4 shards -> [0,1,2],[3,4,5],[6,7],[8,9], merged 0..9); fewer items than n_workers gives fewer shards; empty index list yields zero shards and is guarded by callers (inference.py:184 rejects empty datasets, tts/system.py:188 skips the runner). resume=True correctly skips done shards and rejects plan changes; open_writers in both shipped runners truncates ('w') so a re-run shard cannot duplicate records. Lock files store the driver PID but are never checked for staleness (already known). wrap_func_with_worker_env conflict detection works as documented. The systems/base InferenceProvider setup closure captures only cls/config/params (2.6 KB pickled). Could not test a real Dask/SLURM run (no cluster; budget) -- Dask-path claims rest on code reading; distributed 2026.3.0 is installed and its plugin_add/plugin_remove use hasattr guards, so the plugins['env'] overwrite hack currently works. Python in this environment is 3.13 (not 3.10 as stated in COMMON_INSTRUCTIONS). Known findings (local n_workers>1 never parallelises; lock leak on failure; resume=False stale dirs; per-split cluster in TTS; duplicate InferenceProvider) were not re-reported except where a distinct mechanism was found."
+  },
+  "assumptions": [
+    "egs3 recipes execute several stages in one Python process via espnet3.utils.stages_utils.run_stages (relevant to the set_parallel(None) inheritance finding; not executed).",
+    "Hydra/OmegaConf configs loaded by espnet3 are non-struct (OmegaConf.load in config_utils.py:193), so struct-mode failures are rated as misuse paths.",
+    "Dask worker processes have the recipe directory importable (cloudpickle pickles provider classes by reference)."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "336-357",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "_filter_pending_shards acquires shard locks one by one and raises on the first already-locked shard without releasing the locks it just created, so every retry after clearing a stale lock leaks new locks on other shards.",
+      "scenario": "Stale lock only on split.2 (e.g. from a killed run); user reruns (resume=False, as TTS remove_long_short does): loop locks split.0 and split.1, hits split.2 -> RuntimeError 'Shard is already locked'; split.0/lock and split.1/lock are now leaked too. User deletes split.2/lock, reruns -> fails on split.0. Whack-a-mole recovery; compounds the known 'pre-locks all shards and leaks on failure' finding.",
+      "evidence": "base_runner.py:341-356 `for shard in shards: ... if not self._try_lock_shard(shard_dir): ... raise RuntimeError(...)` -- no try/except that unlocks `pending`; verified: after the raise, locks exist on split.0, split.1 and split.2.",
+      "suggested_fix": "Wrap the acquisition loop in try/except and `_unlock_shard` every shard appended to `pending` before re-raising (or lock lazily inside _run_one_shard instead of pre-locking on the driver).",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/tts/system.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "398-401, 424-429, 383-394",
+      "category": "design",
+      "severity": "medium",
+      "summary": "Runner bookkeeping keys (output_dir, shard_subdir, shard_id) share the flat **env namespace with provider params and are injected with setdefault, so a provider param named output_dir silently redirects shard directories away from the runner's output_dir.",
+      "scenario": "inference.yaml provider.params contains `output_dir: /some/dir` (inference.py:141-162 merges provider.params verbatim into env). _run_local: env.setdefault('output_dir', ...) keeps the provider value; init_state() builds split.0 under /some/dir, writes done there and unlocks there; the driver locked <runner.output_dir>/split.0 -> lock leaked, and _get_completed_shard_dirs raises FileNotFoundError 'Shard 0 is not complete'. A param named `shard_id` gives TypeError (duplicate kwarg) at init_state/reduce_state.",
+      "evidence": "base_runner.py:399 `env.setdefault(\"output_dir\", str(self.output_dir))`, :426-428 same in Dask setup_fn, :383 `cls.init_state(shard_id=shard_id, **env)`, :389 `cls.reduce_state(state, result, shard_id=shard_id, **env)`. Verified: real dir contains only 'lock', other dir contains 'done', FileNotFoundError raised.",
+      "suggested_fix": "Pass runner bookkeeping explicitly (e.g. a reserved `_runner` dict or dedicated positional args to _run_one_shard) instead of through env; or overwrite (not setdefault) and reject provider params that collide with reserved keys.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "442-456",
+      "category": "design",
+      "severity": "medium",
+      "summary": "Cluster lifetime is owned by each runner __call__: _run_parallel_dask builds a fresh Dask cluster (SLURM allocation etc.) and tears it down on every call, so stage loops that call the runner repeatedly pay one cluster start/stop per call.",
+      "scenario": "inference.yaml with parallel.env=slurm and 3 test sets: run_inference (inference.py:109-190) instantiates a provider+runner per test set and calls runner(...) each time -> 3 SLURMCluster allocations, each waiting for jobs to schedule, then closed. Same for collect_stats per mode and (known) TTS remove_long_short per split. There is no API to reuse a client across calls.",
+      "evidence": "base_runner.py:442 `with get_client(par_config, setup_fn=setup_fn) as client:` inside _run_parallel_dask; parallel.py:335-355 get_client always build_client() and closes client+cluster in finally.",
+      "suggested_fix": "Let callers pass/own a Client (e.g. BaseRunner(..., client=None) or a module-level cached cluster keyed by config) and register the env plugin per call; generalises the known TTS per-split finding.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/parallel.py",
+        "espnet3/systems/base/inference.py",
+        "espnet3/components/data/collect_stats.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/parallel/parallel.py",
+      "lines": "125-133",
+      "category": "design",
+      "severity": "medium",
+      "summary": "set_parallel(None) falls back to the previously stored global config instead of resetting to local, so a stage whose config has no `parallel` block silently inherits the cluster config of an earlier stage run in the same process.",
+      "scenario": "run_stages executes train then infer in one process; training.yaml has parallel.env=slurm, n_workers=8; inference.yaml omits `parallel`. inference.py:89 calls set_parallel(getattr(config,'parallel',None)) -> None -> reuses the slurm config -> inference plans 8 shards and submits SLURM jobs although its config implies local execution. tts/system.py:124,429 and training.py:54,82 use `if config.get('parallel')` and so also leave the stale global in place.",
+      "evidence": "parallel.py:126-130 `if config is None: if parallel_config is not None: config = parallel_config else: config = OmegaConf.create({'env':'local',...})`; inference.py:89.",
+      "suggested_fix": "Make set_parallel(None) reset to the local default (or require callers to pass an explicit config), and document that parallel_config is process-global.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py",
+        "espnet3/systems/base/training.py",
+        "espnet3/systems/tts/system.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/parallel/inference_provider.py",
+      "lines": "112-122, 160-178",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "build_worker_setup_fn's closure references self.build_dataset/self.build_model/self._log_env, so `self` -- including the eagerly prebuilt self._local_env (dataset+model) -- is a free variable of the setup function and is pickled to every Dask worker when the WorkerPlugin is registered.",
+      "scenario": "Provider whose build_model returns a large model: InferenceProvider.__init__ builds it on the driver (line 122) even for a distributed run; get_client registers DictReturnWorkerPlugin(setup_fn) -> cloudpickle serialises setup's closure -> the driver's model/dataset (and any unpicklable handle in the env) travels to each worker, contradicting env_provider.py:29-30 and systems/base/inference_provider.py:67-68 ('must not capture self'). Verified: setup.__code__.co_freevars == ('config','params','self'); pickled setup = 5.0 MB for a 5 MB model vs 2.6 KB for the systems/base implementation.",
+      "evidence": "inference_provider.py:171-175 `\"dataset\": self.build_dataset(config), \"model\": self.build_model(config) ... self._log_env(env)` inside setup(); :122 `self._local_env = self.build_worker_setup_fn()()`. Not on the egs3 path (egs3 configs target espnet3.systems.base.inference_provider.InferenceProvider), but exported and tested (test_inference_provider.py).",
+      "suggested_fix": "Capture `cls = type(self)` and call cls.build_dataset/cls.build_model/a classmethod logger inside setup (as systems/base does); build the local env lazily in build_env_local. Or delete this duplicate class (known duplicate finding).",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/parallel/test_inference_provider.py",
+        "espnet3/systems/base/inference_provider.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "260-284",
+      "category": "design",
+      "severity": "low",
+      "summary": "CollectStatsInferenceProvider.build_worker_setup_fn's setup() reads self.config.write_collected_feats, so it captures `self` (the provider) despite the abstraction's 'do not capture self' rule.",
+      "scenario": "Hypothetical: provider gains any heavy/unpicklable attribute -> WorkerPlugin registration pickles it to all workers. Today the payload is just a DictConfig, so the cost is small.",
+      "evidence": "collect_stats.py:281 `env[\"write_collected_feats\"] = self.config.write_collected_feats` inside setup(), while :262-263 already copied dataloader_config/config to locals.",
+      "suggested_fix": "Use the local `config.write_collected_feats`.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/env_provider.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_runner.py",
+      "lines": "110-136, 296-313, 421-427",
+      "category": "design",
+      "severity": "medium",
+      "summary": "InferenceRunner's constructor arguments idx_key/hyp_key/ref_key are never used when records are written: the static write_record takes idx_key/output_keys/hyp_key/ref_key from the provider env only (BaseRunner.reduce_state forwards env, not self), so they only work because run_inference duplicates idx_key/output_keys into provider params.",
+      "scenario": "User follows the docstring example `InferenceRunner(provider, output_dir=..., idx_key='id')` with a provider whose params lack idx_key: write_record validates against the default 'utt_id' and raises 'Inference output must include ... idx_key=\\'utt_id\\''. In the shipped path inference.py:171-173 passes hyp_key=output_keys, ref_key=[] to the constructor, but env never contains hyp_key/ref_key, so the 'required keys' validation (162-175) degenerates to the idx_key check; resolve_idx_key (138) has no caller.",
+      "evidence": "inference_runner.py:129-136 stores self.idx_key/hyp_key/ref_key; :296-305 `def write_record(writers, result, state, idx_key: str = 'utt_id', output_keys=None, hyp_key=None, ref_key=None, **env)`; base_runner.py:243 `cls.write_record(state['_writers'], result, state, **env)`; inference.py:147-149 puts idx_key/output_keys into provider_params, :178 only checks hasattr(runner,'idx_key').",
+      "suggested_fix": "Either drop the constructor keys and document that they come from provider params, or have BaseRunner pass a runner-owned `runner_kwargs` dict into open_writers/write_record so instance settings reach the static hooks.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/base_runner.py",
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "85-91",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "InferenceProvider.__init__ writes params into the caller's DictConfig in place (self.config.update(self.params)); the docstring advertises params such as a 'tokenizer' object, but any non-primitive value raises UnsupportedValueType, a struct config raises ConfigKeyError, and the merged keys leak into the shared inference config across test sets.",
+      "scenario": "params={'tokenizer': SentencePieceTokenizer(...)} as the docstring suggests -> omegaconf.errors.UnsupportedValueType at construction (verified). inference_config with struct flag set -> ConfigKeyError 'Key input_key is not in struct' (verified). run_inference reuses one config object for all test sets (inference.py:157-162), so output_artifacts/output_keys from one iteration persist in config for the next.",
+      "evidence": "inference_provider.py:91 `self.config.update(self.params)`; docstring :72-74 'e.g., device, tokenizer, beam size'; :78-80 admits the mutation.",
+      "suggested_fix": "Do not merge params into config (env already receives them at :114/:144), or merge into a copy and restrict to primitives with a clear error.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "45-74",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "BaseRunner's class docstring documents a constructor (async_mode, async_specs_dir, async_num_workers, async_result_dir) and a `parallel_map` sync mode that do not exist; doc/espnet3/parallel.md likewise shows `parallel_map`, which is defined nowhere, and there is no Runner/Provider documentation despite three TODO(Masao) markers.",
+      "scenario": "A user reading the docstring passes BaseRunner(provider, async_mode=True, async_result_dir=...) -> TypeError unexpected keyword; a user copying doc/espnet3/parallel.md:77-82 gets NameError: parallel_map. The actual contract (output_dir required, shard_subdir, resume, manifest/lock/done files, static hooks open_writers/write_record/close_writers/merge) is undocumented.",
+      "evidence": "base_runner.py:60-73 Args list vs :78-85 signature (provider, batch_size, output_dir, shard_subdir, resume); :72 'submitted via ``parallel_map``'; doc/espnet3/parallel.md:78,86; grep parallel_map finds no definition. TODO(Masao) at base_runner.py:76, env_provider.py:33, systems/base/inference_provider.py:83.",
+      "suggested_fix": "Rewrite the docstring for the current signature and write the Runner/Provider section the TODOs promise (shard/manifest/lock semantics, env namespace, pickling rules).",
+      "confidence": 1.0,
+      "test_name": null,
+      "related_files": [
+        "doc/espnet3/parallel.md",
+        "espnet3/parallel/env_provider.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "255-266, 327-333",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "The shard manifest is JSON and compared by equality with the in-memory plan, so any index type that is not JSON-native breaks: numpy integers crash _write_manifest with TypeError and tuple indices always fail resume with a false 'shard plan changed'.",
+      "scenario": "runner(list(np.arange(n))) -> TypeError 'Object of type int64 is not JSON serializable' at :266 (verified). runner([(0,1),(2,3)]) twice -> second call RuntimeError 'Cannot resume because the shard plan changed' although nothing changed (verified). Shipped callers pass list(range(n)) so this is a misuse path; RemoveLongShortRunner.forward:44 `isinstance(idx, int)` would also mis-handle numpy ints.",
+      "evidence": "base_runner.py:266 `json.dump(data, f, ...)`; :327 `if manifest_shards != planned_shards:` compares JSON-roundtripped lists with the original objects.",
+      "suggested_fix": "Normalise items to plain ints/lists (or `json.loads(json.dumps(...))`) before planning and comparing; document that indices must be JSON-serialisable.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/tts/remove_long_short_runner.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/base_runner.py",
+      "lines": "383-394",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "_run_one_shard opens the shard writers (init_state) before the try block and only unlocks in finally, so when forward raises, close_writers is never called: file handles stay open and a partial shard file without a done marker is left behind.",
+      "scenario": "forward raises on item 2 of a shard: the shard's *.scp / results.jsonl handles are not closed (leak in a long-lived Dask worker until GC), partial content remains in split.N. Harmless for the shipped runners because open_writers uses mode 'w' and the shard is re-run on resume, but any subclass appending ('a') would duplicate records. Verified: after failure split.0 contains o.txt with partial content and no 'done'.",
+      "evidence": "base_runner.py:383 `state = cls.init_state(shard_id=shard_id, **env)` outside try; :385-394 try/finally only unlocks; finalize_state at :390 is skipped on exception.",
+      "suggested_fix": "Move finalize_state/close into the finally (or an except branch that closes handles), and document that open_writers must truncate.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference_runner.py",
+        "espnet3/systems/tts/remove_long_short_runner.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/parallel.py",
+      "lines": "131-133",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "set_parallel assumes `options` is a mapping and writes back into the caller's config: `options:` left empty in YAML (None) gives TypeError 'NoneType object is not iterable', and a struct-mode config without `options` raises ConfigAttributeError.",
+      "scenario": "training.yaml `parallel: {env: slurm, n_workers: 4, options: }` -> set_parallel -> dict(None) TypeError with no hint about the parallel block (verified). Struct config lacking options -> 'Key options is not in struct' (verified). Also mutates the user's config (config.options = options) and copies only shallowly.",
+      "evidence": "parallel.py:131 `options = dict(config.options) if hasattr(config, \"options\") else {}`; :132 `config.options = options`.",
+      "suggested_fix": "`options = OmegaConf.to_container(config.get('options') or {})`, build the stored config as a new DictConfig instead of mutating the input.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/parallel/parallel.py",
+      "lines": "335-355",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "get_client builds the client and registers the worker plugin before entering try/finally, so a failure in _register_worker_plugin leaks the Client and the (possibly SLURM) cluster; the finally comment 'Avoid shutdown for LocalCluster' contradicts the code, which closes every cluster.",
+      "scenario": "setup_fn that is not picklable (e.g. closes over an open file) -> register_plugin raises on the driver -> cluster jobs stay allocated until the process exits.",
+      "evidence": "parallel.py:335-338 `client = build_client(config); if setup_fn is not None: ... _register_worker_plugin(...)` precede `try:` at :339; comment :342.",
+      "suggested_fix": "Move plugin registration inside the try, fix the comment.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_runner.py",
+      "lines": "324-336",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "When output_keys is configured explicitly, write_record indexes output[field_key] without checking presence, so a record lacking one configured key fails with a bare KeyError instead of the descriptive validation error used for idx_key.",
+      "scenario": "inference.yaml output_keys: [hyp, score]; output_fn returns {'utt_id':..., 'hyp':...} for some items -> KeyError: 'score' from inside the shard, with no mention of output_keys; the shard's partial scp files are left behind.",
+      "evidence": "inference_runner.py:317-322 validates only idx_key/hyp_key/ref_key (hyp_key/ref_key are None in the shipped env); :336 `value=output[field_key]`.",
+      "suggested_fix": "Validate resolved_output_keys against each record and raise a ValueError naming the missing keys.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/inference.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/inference_provider.py",
+      "lines": "207-216",
+      "category": "bug",
+      "severity": "low",
+      "summary": "build_dataset instantiates the DataOrganizer twice when given a plain dict (the dict is converted to DictConfig and both isinstance branches run), and raises UnboundLocalError for any other type; a missing test_set yields organizer.test[None].",
+      "scenario": "build_dataset({'dataset': {...}, 'test_set': 'test'}) -> instantiate(config.dataset) executed at :209 and again at :212 (double construction, doubled side effects). build_dataset(SimpleNamespace(...)) -> UnboundLocalError: organizer.",
+      "evidence": "inference_provider.py:207-212 `if isinstance(config, dict): config = OmegaConf.create(config); organizer = instantiate(config.dataset)` then `if isinstance(config, DictConfig): organizer = instantiate(config.dataset)`.",
+      "suggested_fix": "Convert first, then instantiate once; validate test_set.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/parallel/test_inference_runner.py",
+      "lines": "347-413",
+      "category": "test-gap",
+      "severity": "medium",
+      "summary": "No test in test/espnet3/parallel exercises BaseRunner's Dask path: the 'parallel_shards' tests use env=local (which BaseRunner runs on the driver), test_inference_runner.py never tests InferenceRunner, test_inference_provider.py tests the unused duplicate provider, and the only lock-failure test uses a single shard so multi-shard lock leaks are invisible.",
+      "scenario": "_run_parallel_dask (base_runner.py:410-456), wrap_func_with_worker_env+DictReturnWorkerPlugin integration with a real runner, provider pickling, the mid-loop lock leak and the output_dir env collision are all untested; test_parallel_shards_offline_with_base_runner asserts len(shard_dirs) >= 1, which passes with the single driver shard.",
+      "evidence": "test_inference_runner.py:350-358 and :384-392 set env 'local' with n_workers 2/3; :373 `assert len(shard_dirs) >= 1`; test_base_runner_batch.py:425-443 test_failed_shard_releases_lock uses batch_size=2 on [0,1] (one shard); test_parallel.py only tests get_client/wrap_func directly.",
+      "suggested_fix": "Add a LocalCluster-backed BaseRunner test (env != 'local' via a small dask LocalCluster or by monkeypatching get_client) covering multi-shard runs, merge order, failure lock release and provider pickling; rename/refocus test_inference_runner.py.",
+      "confidence": 0.9,
+      "test_name": "test_parallel_shards_offline_with_base_runner",
+      "related_files": [
+        "test/espnet3/parallel/test_base_runner_batch.py",
+        "test/espnet3/parallel/test_parallel.py",
+        "test/espnet3/parallel/test_inference_provider.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/parallel/parallel.py",
+      "lines": "200-208, 288-296",
+      "category": "design",
+      "severity": "low",
+      "summary": "DictReturnWorkerPlugin.setup overwrites Dask's own plugin registry entry worker.plugins['env'] with the returned dict, and wrapped() compensates by detecting when the entry is still the plugin object and re-running setup_fn per task.",
+      "scenario": "Works with current distributed (2026.3) because Worker.plugin_remove/close guard with hasattr(plugin,'teardown'); if setup_fn raised during plugin_add (distributed catches and logs it), every task re-runs the heavy setup_fn and surfaces the error per task instead of once at registration. Relies on private Worker internals.",
+      "evidence": "parallel.py:205 `worker.plugins[\"env\"] = env`; :293-296 `env = get_worker().plugins.get(\"env\", {}); if isinstance(env, DictReturnWorkerPlugin): env = env.setup_fn(); worker.plugins[\"env\"] = env`.",
+      "suggested_fix": "Store the env on the plugin instance (plugin.env) or in worker.data / a module-level cache, and look it up via worker.plugins['env'].env.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}

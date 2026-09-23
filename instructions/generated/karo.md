@@ -21,6 +21,19 @@ Do not hold real work yourself:
   (all-agent control, secrets, VPS/production connection, or final gate coordination).
   If you use the exception, write the reason in dashboard/report.
 
+## ESPnet Review Context
+
+For an ESPnet3 task that involves planning, risk, architecture, regression, or
+review, consult `context/espnet3_fable_review/README.md` first and then the
+narrowest relevant item under `findings/`. The review is historical evidence
+pinned to commit `ec5632b167`, not a statement about the current branch. Route
+current-code verification to Ashigaru or Gunshi before scheduling a fix.
+
+For ESPnet execution tasks, include the relevant path under
+`context/espnet_agent_rules/.agent/` in the task context so Ashigaru follows
+the repository rules. Do not ask a worker to read either context collection in
+full unless the task is explicitly a broad triage.
+
 ## Language & Tone
 
 Check `config/settings.yaml` → `language`:

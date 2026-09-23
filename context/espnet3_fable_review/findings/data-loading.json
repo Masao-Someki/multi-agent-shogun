@@ -1,0 +1,388 @@
+{
+  "area": "data-loading",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/components/data/dataset_builder.py",
+      "espnet3/components/data/dataset_module.py",
+      "espnet3/components/data/iterator.py",
+      "espnet3/components/data/dataloader.py",
+      "espnet3/components/data/collect_stats.py",
+      "espnet3/systems/base/training.py",
+      "egs3/TEMPLATE/asr/conf/training.yaml",
+      "test/espnet3/components/data/test_dataloader_builder.py",
+      "test/espnet3/components/data/test_iterator.py",
+      "test/espnet3/components/data/test_collect_stats.py",
+      "test/espnet3/utils/test_dataset_module.py",
+      "espnet3/parallel/base_runner.py"
+    ],
+    "files_skimmed": [
+      "espnet3/components/modeling/lightning_module.py (159-206, 1124-1203)",
+      "espnet3/components/trainers/trainer.py (90-150, 271-279)",
+      "espnet3/components/data/dataset.py (177-250, 355-400, 508-545)",
+      "espnet3/components/data/data_organizer.py (24-72, 360-460)",
+      "espnet2/main_funcs/collect_stats.py (40-125)",
+      "espnet2/layers/global_mvn.py (stats loading)",
+      "espnet2/iterators/sequence_iter_factory.py (signatures)",
+      "espnet2/samplers/build_batch_sampler.py (signature)",
+      "egs3/mini_an4/asr/conf/training_asr_streaming.yaml (80-160)"
+    ],
+    "files_not_read": [
+      "espnet3/parallel/parallel.py",
+      "espnet3/parallel/env_provider.py",
+      "espnet2/iterators/chunk_iter_factory.py"
+    ],
+    "tests_inspected": [
+      "test/espnet3/components/data/test_dataloader_builder.py",
+      "test/espnet3/components/data/test_iterator.py",
+      "test/espnet3/components/data/test_collect_stats.py",
+      "test/espnet3/utils/test_dataset_module.py"
+    ],
+    "notes": "Checked OK: shard rotation math shard_idx=((epoch*W)+rank)%T simulated for W in {1,2,4}, T in {1,4,6}: with the T%W==0 guard every epoch visits W distinct shards, all T shards are visited in T/W epochs, no shard twice per epoch (T=6,W=4 and T=1,W>1 are rejected). Per-rank batch-count equality on the iter_factory path is guaranteed by the tail drop + rank stride, and EpochSyncIterator additionally syncs data-dependent factories; the standard-loader shard path has no such protection (unequal shard sizes could stall DDP) but Lightning's DistributedSampler pads there (see double-sharding finding). copy.copy(DictConfig) keeps the parent so `${dataloader.collate_fn}` interpolation in iter_factory resolves (verified). SequenceIterFactory.build_iter(epoch, shuffle=None) protocol is honoured; seed+epoch is identical across ranks, which is correct because batches are pre-split per rank; num_workers/pin_memory pass through factory_config. Stats npz keys count/sum/sum_square match espnet2 GlobalMVN. Shard merge order is shard-id order and chunks partition indices (no duplicates/missing). Not checked: actual multi-process DDP runs (no GPUs/launcher here), Dask worker path, Lightning DistributedSampler injection at runtime (reasoned from trainer.py flags). Known findings from other areas (normalize pop, CombinedDataset.shard() resetting use_espnet_collator, collect_stats.py:43-50 unpacking, DDP rank guard) were not duplicated."
+  },
+  "assumptions": [
+    "Lightning 2.x replaces a plain DataLoader's sampler with DistributedSampler when trainer.use_distributed_sampler is True and the strategy is distributed.",
+    "egs3/mini_an4 configs inherit stats_dir from TEMPLATE (grep found no override).",
+    "Line numbers are from the current working tree at review time."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "83-90,258-260",
+      "category": "bug",
+      "severity": "high",
+      "summary": "Distributed mode is detected by `num_device > 1` (per-node device count), so multi-node DDP with one GPU per node is treated as world_size=1/rank=0: iter-factory batches are not split across ranks and shard selection is rank-independent.",
+      "scenario": "TEMPLATE training.yaml with num_device: 1, num_nodes: 2 (trainer.devices=${num_device}, num_nodes=${num_nodes}) and the default SequenceIterFactory path -> `_build_iter_factory` skips `batches[rank::world_size]` (line 258 `if self.num_device > 1`), every rank iterates the full batch list in identical order; EpochSyncIterator (which correctly uses torch.distributed.is_initialized()) keeps them in lock-step, so training runs with no data parallelism at N x cost and no error. With a ShardedDataset, a correctly configured dist_world_size: 2 is rejected with the misleading 'dist_world_size must match the distributed world_size (configured 2, got 1)'.",
+      "evidence": "dataloader.py:84-89 `if self.num_device > 1: world_size = torch.distributed.get_world_size() ... else: world_size = 1; rank = 0`; :258 `if self.num_device > 1:` guards the rank split; lightning_module.py:1138 `num_device=self.config.num_device`; egs3/TEMPLATE/asr/conf/training.yaml:17-18,263-264 num_device/num_nodes -> trainer.devices/num_nodes; iterator.py:123-124 uses is_available()/is_initialized() instead.",
+      "suggested_fix": "Derive rank/world_size from torch.distributed.is_initialized() (as iterator.py does) or from the Lightning trainer (self.trainer.world_size/global_rank), never from num_device.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/trainers/trainer.py",
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "espnet3/components/data/iterator.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "487-510",
+      "category": "bug",
+      "severity": "high",
+      "summary": "collect_stats re-runs silently reuse stale per-shard outputs: CollectStatsRunner inherits BaseRunner resume=True, the manifest only fingerprints the index plan, and completed shards are skipped and re-merged regardless of model/frontend/dataset-content changes.",
+      "scenario": "Run collect_stats, then change the frontend (n_mels, hop_length, fs) or dataset contents while the split length and batch_size stay the same, and re-run collect_stats: manifest.json matches, split.0/done exists -> no shard is executed and merge() rewrites train/feats_stats.npz and train/feats_shape from the OLD split.0 files (even if the user deleted the top-level npz). GlobalMVN (librispeech config normalize_conf.stats_file: ${stats_dir}/train/feats_stats.npz) then normalizes with wrong statistics (crash only if the feature dim changed). TEMPLATE stats_dir=${recipe_dir}/exp/stats is shared by every experiment in a recipe (mini_an4 configs inherit it), so e.g. training_asr_streaming.yaml (raw-waveform feats) run after training_asr_transformer.yaml gets the transformer's fbank shape files.",
+      "evidence": "collect_stats.py:499-504 `CollectStatsRunner(provider, output_dir=output_dir, mode=mode, write_collected_feats=...)` (no resume); base_runner.py:84 `resume: bool = True`, :313-334 manifest compared only against planned index chunks, :345-346 `if self.resume and self.is_shard_done(shard_dir): continue`, :480 `return self.merge(self._get_completed_shard_dirs(shards))`; training.yaml:29 `stats_dir: ${recipe_dir}/exp/stats`. Verified: second run with DummyModel(scale=2.0) reproduced run-1 sums exactly (stale reuse: True).",
+      "suggested_fix": "Pass resume=False (or clear output_dir/mode) from collect_stats, or include a fingerprint of model_config/dataset_config in the manifest and refuse to resume on mismatch; consider scoping stats_dir per experiment or per frontend config.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/parallel/base_runner.py",
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "140-141,219-244",
+      "category": "bug",
+      "severity": "high",
+      "summary": "A ShardedDataset used with the standard PyTorch DataLoader under Lightning DDP is sharded twice: the builder picks a rank-specific shard, then Lightning (use_distributed_sampler stays True because is_espnet_sampler is False) wraps the loader in DistributedSampler, so each rank sees only 1/world_size of its own shard.",
+      "scenario": "dataset with total_shards=4, dist_world_size=2, dataloader.train.iter_factory: null, num_device: 2 -> rank r gets shard (2*epoch+r)%4 (line 140) and Lightning's DistributedSampler(num_replicas=2, rank=r) then subsamples that shard -> half of every shard is never trained on in a given epoch and the two halves visited differ by rank; no error is raised. The iter_factory path cannot be used with rotating shards (shape files are global), so this is the only usable sharding path.",
+      "evidence": "dataloader.py:140-141 `shard_idx = ((self.epoch * runtime_world_size) + rank) % total_shards; return dataset.shard(shard_idx)`; :238-244 plain `torch.utils.data.DataLoader(dataset, sampler=None, batch_sampler=None, ...)`; trainer.py:130-131 `if self.model.is_espnet_sampler: self.config.use_distributed_sampler = False` (only then); lightning_module.py:199 is_espnet_sampler=is_train_espnet.",
+      "suggested_fix": "Set use_distributed_sampler=False whenever the dataset is sharded (or always, since the builder owns rank handling), and document that the standard-loader shard path expects equal shard sizes or wrap it in EpochSyncIterator to avoid unequal per-rank batch counts.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/trainers/trainer.py",
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/data/dataset.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "109-119,223-244",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "`total_shards`/`dist_world_size` are read from the dataset object, never from config, yet TEMPLATE/asr and mini_an4 streaming configs put them under dataloader.train/valid; the keys are dead there and crash the documented standard-DataLoader mode.",
+      "scenario": "TEMPLATE training.yaml (dataloader.train.total_shards: 1, dist_world_size: 1) with `iter_factory: null` + batch_size (docstring 'Case 2') -> `_build_standard_dataloader` forwards `**config` -> TypeError: DataLoader.__init__() got an unexpected keyword argument 'total_shards' (verified). A user setting dataloader.train.total_shards: 4 to enable sharding gets no sharding at all.",
+      "evidence": "dataloader.py:109-110 `first_dataset = dataset.datasets[0]; total_shards = getattr(first_dataset, 'total_shards', None)`; :119 `getattr(first_dataset, 'dist_world_size', None)`; :234-243 only pops 'dataset' and 'iter_factory' before `**config`; training.yaml:223-227,243-245 and egs3/mini_an4/asr/conf/training_asr_streaming.yaml:126-129 define the keys under dataloader.",
+      "suggested_fix": "Remove the keys from the templates (or read them from config and forward to the dataset), and whitelist/strip non-DataLoader keys before `**config`.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "egs3/mini_an4/asr/conf/training_asr_streaming.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "258-288",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "DDP tail-batch dropping removes the same `total % world_size` batches every epoch (the batch list from build_batch_sampler is deterministic; SequenceIterFactory only permutes order), so those utterances are never trained on; when total < world_size every rank gets an empty epoch.",
+      "scenario": "type: sorted or numel with world_size 4 and 1001 batches -> the last batch (the longest or shortest utterances, since batches are length-sorted) is dropped in every epoch of training; espnet2 instead splits inside each batch. A tiny dataset producing 1 batch with world_size 2 -> keep=0 -> `build_iter` over [] -> zero training steps with only a warning.",
+      "evidence": "dataloader.py:263-277 `remainder = total_batches % world_size ... batches = batches[:keep]`; :288 `batches = batches[rank::world_size]`; espnet2/iterators/sequence_iter_factory.py:75-87 shuffles the batch order per epoch only.",
+      "suggested_fix": "Rotate which batches are dropped per epoch (e.g. offset by epoch), or pad by repeating batches instead of dropping, and raise when keep == 0.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet2/iterators/sequence_iter_factory.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "192-195",
+      "category": "design",
+      "severity": "medium",
+      "summary": "build('valid') applies the same epoch-rotating shard selection as train, so validation runs on a different shard each epoch and valid/loss values across epochs (used by best_model_criterion) are not comparable.",
+      "scenario": "ShardedDataset valid split with total_shards=4, world_size=1 -> epoch 0 validates shard 0, epoch 1 shard 1, ...; the min-valid/loss checkpoint selection picks whichever shard happened to be easiest.",
+      "evidence": "dataloader.py:195 `dataset = self._maybe_shard_dataset(self.dataset)` unconditionally for both modes; :140 shard_idx depends on self.epoch; lightning_module.py:1143-1160 val_dataloader passes epoch=self.current_epoch; training.yaml:194-197 best_model_criterion valid/loss.",
+      "suggested_fix": "Do not rotate valid shards by epoch (use rank only, or concatenate all shards for validation).",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "140-141,256,301",
+      "category": "design",
+      "severity": "medium",
+      "summary": "Sharding is incompatible with the iter_factory path: batches come from global shape files whose uids are CombinedDataset global indices, but the iter factory indexes the epoch/rank shard, so uids resolve to different utterances (or IndexError) after `dataset.shard()`.",
+      "scenario": "ShardedDataset + SequenceIterFactory with shape_files from collect_stats over the unsharded dataset: uid '57' (row 57 of the full dataset) is looked up on the shard -> CombinedDataset int-mode returns the shard's 57th item (a different utterance, wrong length for batch_bins) or raises 'Index out of range in CombinedDataset' when the shard is shorter. The error message at 199-201 suggests pointing shape files to split.*, which cannot follow the per-epoch rotation.",
+      "evidence": "dataloader.py:256 `batches = build_batch_sampler(**factory_config.pop('batches'))` (global shape_files) then :301 `instantiate(factory_config, dataset, batches=batches)` with the sharded dataset; dataset.py:186-193 str->int index, :212-213 `return str(idx), transformed`; collect_stats writes shape files keyed by these indices (collect_stats.py:96).",
+      "suggested_fix": "Reject total_shards>1 together with iter_factory, or key shape files by stable utterance ids and filter batches to the shard's keys.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/dataset.py",
+        "espnet3/components/data/collect_stats.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "85-96",
+      "category": "design",
+      "severity": "medium",
+      "summary": "Shape files are keyed by CombinedDataset global integer indices (uid=str(idx)), so any change in dataset composition/order between collect_stats and train silently re-maps shape entries to other utterances; nothing fingerprints the dataset.",
+      "scenario": "collect_stats with dataset.train = [A]; later add entry B before A (or the recipe Dataset returns rows in a different order) and run train without re-running collect_stats (the stage is considered done because stats_dir exists) -> batch_bins/sorted batching uses A's lengths for B's rows; no error.",
+      "evidence": "collect_stats.py:96 `shape_info[feat_key][uid] = ...` with uid from the collate output; dataset.py:212-213 `if self.use_espnet_collator: return str(idx), transformed` (global index); training.yaml:236-237 shape_files: ${stats_dir}/train/feats_shape.",
+      "suggested_fix": "Use stable utterance ids from the recipe dataset when available and store a dataset fingerprint (length + entry list hash) next to the shape files, checked by DataLoaderBuilder.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/dataset.py",
+        "espnet3/components/data/dataloader.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/training.py",
+      "lines": "31-40,67-68",
+      "category": "design",
+      "severity": "medium",
+      "summary": "The collect_stats stage builds a full ESPnetLightningModule and ESPnet3LightningTrainer (model + DataOrganizer + loggers/callbacks) only to call model.collect_stats(), which re-instantiates the organizer and model again per split: the organizer is built 5 times and the model 3 times.",
+      "scenario": "TEMPLATE `--stages collect_stats`: lightning_module.py:164 instantiate(config.dataset) [1], _instantiate_model [1]; per mode: collect_stats.py:487 _get_dataset_length -> _instantiate_dataset [+1], build_env_local -> _build_dataset [+1] and _build_model [+1]. For datasets that scan manifests/HF hubs or preprocessors that load tokenizers this multiplies stage start-up time and any import-time side effects (see dataset_module local-module re-exec), and the Trainer constructor's logger/callback setup touches exp_dir for a stage that only needs stats_dir.",
+      "evidence": "training.py:67-68 `trainer = _build_trainer(config); trainer.collect_stats()`; trainer.py:271-279 delegates to model.collect_stats(); lightning_module.py:1189-1203 loops modes calling collect_stats(); collect_stats.py:121-131,173-181,245,256.",
+      "suggested_fix": "Call espnet3.components.data.collect_stats.collect_stats directly from training.collect_stats with the resolved configs, or build the dataset/model once and pass instances.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/trainers/trainer.py",
+        "espnet3/components/data/collect_stats.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "207",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "`data_src_args: null` (the natural YAML for 'no constructor args') raises TypeError \"'NoneType' object is not iterable\" from dict(None); the docstring promises ValueError.",
+      "scenario": "dataset.train: [{data_src: mini_an4/asr, data_src_args: }] -> plain.get('data_src_args', {}) returns None -> dict(None) -> TypeError with no mention of data_src_args (verified).",
+      "evidence": "dataset_module.py:207 `data_src_args = dict(plain.get(_DATA_SRC_ARGS_KEY, {}))`; docstring 184-186 'ValueError: If data_src_args is incompatible with dict(...)'.",
+      "suggested_fix": "`dict(plain.get(_DATA_SRC_ARGS_KEY) or {})` and raise a ValueError naming the key for non-mapping values.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "test/espnet3/components/data/test_collect_stats.py",
+      "lines": "209-211,235,365,414",
+      "category": "test-gap",
+      "severity": "medium",
+      "summary": "The `use_parallel=True` parametrisation uses parallel env 'local', for which BaseRunner plans exactly one shard and runs on the driver, so the multi-shard merge/concatenation, the Dask path, and re-run/resume behaviour of collect_stats are never exercised; no test uses a real CombinedDataset.",
+      "scenario": "base_runner.py:288-289 `if par_config is not None and env not in ('local',): num_shards = n_workers` -> make_parallel_cfg(env='local', n_workers=2) yields 1 shard; __call__:475 routes env=='local' to _run_local. Regressions in CollectStatsRunner.merge ordering, concatenate_shard_files, or the stale-resume behaviour (finding above) pass these tests; the DummyDataset carries an explicit use_espnet_preprocessor attribute so the CombinedDataset tuple/dict mismatch (known) is masked.",
+      "evidence": "test_collect_stats.py:209-211 make_parallel_cfg returns env 'local'; :235,:365,:414 parametrize use_parallel; no test writes to an existing output_dir twice.",
+      "suggested_fix": "Add a test with a non-local env stub (or call CollectStatsRunner._run_local over a 2-shard plan) asserting merged shape-file order and totals, a re-run test asserting recomputation, and a DataOrganizer-based test.",
+      "confidence": 0.9,
+      "test_name": "test_collect_stats_local_basic",
+      "related_files": [
+        "espnet3/parallel/base_runner.py",
+        "espnet3/components/data/collect_stats.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "204,237",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "A mode config without an `iter_factory` key at all fails with ConfigAttributeError 'Missing key iter_factory' (and pop KeyError); only an explicit `iter_factory: null` selects the standard DataLoader.",
+      "scenario": "dataloader: {train: {batch_size: 4, shuffle: true}, valid: {...}} -> lightning_module __init__ accepts it (hasattr False) but builder.build('train') raises 'Missing key iter_factory' (verified); the same happens for build(mode) with an unknown mode because getattr defaults to an empty DictConfig.",
+      "evidence": "dataloader.py:192 `getattr(self.config.dataloader, mode, DictConfig({}))`; :204 `if config.iter_factory is not None`; :237 `config.pop('iter_factory')`.",
+      "suggested_fix": "Use `config.get('iter_factory')` / `pop('iter_factory', None)` and validate mode in {'train','valid'} as the docstring claims.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataloader.py",
+      "lines": "189-190,216-217",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "build() docstring claims ValueError for modes other than train/valid but nothing validates mode; and `mode` is never forwarded to _build_iter_factory/_build_standard_dataloader, so the valid loader is logged as '[train]' and, because logging is deduplicated by label, never logged at all.",
+      "scenario": "val_dataloader() -> build('valid') -> _build_iter_factory(factory_config, dataset) with default mode='train' -> the '[train] Dropping N tail batches' warning is emitted for the valid split and log_dataloader(label='train') is skipped after the train loader was logged.",
+      "evidence": "dataloader.py:216 `return self._build_iter_factory(factory_config, dataset)`; :217 `return self._build_standard_dataloader(config, dataset)`; :219,:252 `mode='train'` defaults; :22-24 and :289 dedupe on label/mode.",
+      "suggested_fix": "Pass mode=mode in both calls; validate mode.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "82-95,368-374,437-450",
+      "category": "bug",
+      "severity": "low",
+      "summary": "Per-batch and cross-batch sum/sum_square accumulators stay float32 (model outputs are float32 and defaultdict(float)+float32 array remains float32), so dataset-scale sums lose precision and var = E[x^2]-E[x]^2 amplifies the error; espnet2 shares this behaviour.",
+      "scenario": "~36M frames (librispeech_100) with log-mel values ~1e1 -> sum_square ~1e10 accumulated in float32 with per-add rounding ~ulp/2 ~ 6e2; verified that adding 1000 ones to 2**24 in float32 yields 0. Resulting GlobalMVN variance is biased at the 1e-3 relative level (not catastrophic).",
+      "evidence": "collect_stats.py:93-94 `stats[feat_key]['sum'] += seq.sum(0)` (float32 numpy); :368-369 `defaultdict(float)`; verified dtype stays float32.",
+      "suggested_fix": "Cast seq to float64 before summing (seq.astype(np.float64)) and accumulate in float64.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet2/main_funcs/collect_stats.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "506-507,569-579",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "An empty split produces no shape or stats files and a `stats_keys` file containing only a newline; the failure surfaces much later as FileNotFoundError from build_batch_sampler on ${stats_dir}/<mode>/feats_shape.",
+      "scenario": "valid split resolves to 0 items (wrong split name in data_src_args) -> collect_stats returns {},{},{} silently; train stage crashes when SequenceIterFactory opens the missing valid/feats_shape.",
+      "evidence": "collect_stats.py:506-507 `if not index_batches: return {}, {}, {}`; :578-579 writes '\\n'.join({}) + '\\n'.",
+      "suggested_fix": "Raise (or at least log a warning) when num_items == 0.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "85-96",
+      "category": "design",
+      "severity": "low",
+      "summary": "Shape files are written only for collect_feats outputs and also for `*_lengths` keys, unlike espnet2 which writes shape files for every input key (speech_shape, text_shape) and skips *_lengths; espnet2 configs listing text_shape cannot be ported.",
+      "scenario": "Porting an espnet2 config with `shape_files: [train/speech_shape, train/text_shape]` (needed for length/numel batching on text) -> text_shape is never produced -> FileNotFoundError at train; meanwhile feats_lengths_shape and feats_lengths_stats.npz are emitted (verified in output listing).",
+      "evidence": "collect_stats.py:86-96 loops over `feats.keys()` including `mel_lengths`; espnet2/main_funcs/collect_stats.py:55-62 iterates `batch` keys and `if name.endswith('_lengths'): continue`.",
+      "suggested_fix": "Also write shape files for the collated input keys and skip *_lengths, matching espnet2.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet2/main_funcs/collect_stats.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "102-115",
+      "category": "design",
+      "severity": "low",
+      "summary": "The local recipe dataset module is re-executed and sys.modules overwritten on every load_dataset_module(None, recipe_dir) call, so module-level side effects repeat and each call yields distinct class objects.",
+      "scenario": "DataOrganizer calls instantiate_dataset_reference per entry and the collect_stats stage instantiates the organizer 5 times -> dataset/__init__.py runs >=10 times; a module-level download/manifest scan repeats and `isinstance(ds, module.Dataset)` across loads is False.",
+      "evidence": "dataset_module.py:103-115 builds `module_name`, `sys.modules[module_name] = module; spec.loader.exec_module(module)` unconditionally.",
+      "suggested_fix": "Return sys.modules[module_name] when already present.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "61-72",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "resolve_dataset_module_name documents hyphen->underscore normalisation as support for `my-recipe/asr`, but an egs3 directory named my-recipe is not importable, so the example cannot work; trailing slashes also produce a confusing 'egs3.x.y..dataset' import error.",
+      "scenario": "data_src: my-recipe/asr with egs3/my-recipe/asr/dataset -> ModuleNotFoundError: No module named 'egs3.my_recipe'.",
+      "evidence": "dataset_module.py:71 `'.'.join(part.replace('-', '_') for part in ref.split('/'))`.",
+      "suggested_fix": "Validate tag segments as identifiers and raise a clear error.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "31-36",
+      "category": "design",
+      "severity": "low",
+      "summary": "_to_plain_dict uses resolve=False, so parse_dataset_reference_config/instantiate_dataset_reference called with a root-attached DictConfig pass literal '${dataset_dir}' strings to Dataset(); it only works because DataOrganizer resolves entries first.",
+      "scenario": "Any caller passing cfg.dataset.train[0] directly (the public API accepts DictConfig) -> Dataset(data_path='${dataset_dir}') (verified: {'p': '${dataset_dir}'} returned).",
+      "evidence": "dataset_module.py:35 `OmegaConf.to_container(config, resolve=False)`; data_organizer.py:436-438 resolves before calling.",
+      "suggested_fix": "Resolve when the node has a parent, or document the precondition.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/data_organizer.py",
+        "espnet3/systems/base/system.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "test/espnet3/components/data/test_collect_stats.py",
+      "lines": "20",
+      "category": "test-quality",
+      "severity": "low",
+      "summary": "`mp.set_start_method('fork', force=True)` runs at import time and mutates the multiprocessing start method for the entire pytest session.",
+      "scenario": "Any later test in the session relying on spawn/forkserver semantics (or the default) is affected by collection order.",
+      "evidence": "test_collect_stats.py:20 `mp.set_start_method('fork', force=True)` at module scope.",
+      "suggested_fix": "Move into a fixture using mp.get_context('fork') or drop it.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/components/data/test_dataloader_builder.py",
+      "lines": "477-512,606-661",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test covers torch.distributed initialised with num_device=1 (multi-node), a mode config lacking iter_factory, tail-drop stability across epochs, or the sharded standard-loader path under a Lightning Trainer, so the distributed findings above are invisible to the suite.",
+      "scenario": "All DDP tests monkeypatch get_world_size/get_rank and pass num_device=world_size; sharded tests iterate the raw DataLoader without Lightning's DistributedSampler injection.",
+      "evidence": "test_dataloader_builder.py:485-487,506 num_device=2 with patched world size; :621-626 sharded assignment tests build loaders directly.",
+      "suggested_fix": "Add cases for num_device=1 with dist initialised, epoch-stability of dropped batches, and a Trainer-level sharding test.",
+      "confidence": 0.8,
+      "test_name": "test_iter_factory_drops_tail_batches_for_ddp",
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}

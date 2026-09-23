@@ -1,0 +1,286 @@
+{
+  "area": "trainer-callbacks",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/components/trainers/trainer.py",
+      "espnet3/components/callbacks/default_callbacks.py",
+      "espnet3/components/callbacks/ema.py",
+      "espnet3/components/callbacks/vendored_ema.py",
+      "espnet3/systems/base/training.py",
+      "egs3/TEMPLATE/asr/conf/training.yaml",
+      "test/espnet3/components/trainers/test_trainer.py",
+      "test/espnet3/components/callbacks/test_callback.py",
+      "test/espnet3/components/callbacks/test_ema.py",
+      "test/espnet3/components/callbacks/test_logging_callback.py"
+    ],
+    "files_skimmed": [
+      "espnet3/components/modeling/lightning_module.py (lines 185-205, 330-370, 1080-1175, grep of self.log/optimizer paths)",
+      "espnet3/components/data/dataloader.py (lines 136-260)",
+      "egs3/TEMPLATE/asr/conf/publication.yaml (exclude list)",
+      "egs3/librispeech_100/asr/conf/inference.yaml + tuning/training_e_branchformer.yaml (criterion/trainer block)",
+      "egs3/mini_an4/asr/conf/*.yaml (max_epochs, inference asr_model_file)",
+      "espnet2/torch_utils/safe_torch_load.py (weights_only policy)",
+      "lightning 2.6.1 source: callback_connector._reorder_callbacks, checkpoint_connector.dump_checkpoint, model_checkpoint._save_last_checkpoint/_link_checkpoint/_get_metric_interpolated_filepath_name, lr_monitor.on_train_start, logger_connector.configure_logger"
+    ],
+    "files_not_read": [
+      "espnet3/systems/base/system.py (train stage skip/rerun logic)",
+      "espnet3/utils/publication_utils.py"
+    ],
+    "tests_inspected": [
+      "test/espnet3/components/trainers/test_trainer.py",
+      "test/espnet3/components/callbacks/test_callback.py",
+      "test/espnet3/components/callbacks/test_ema.py",
+      "test/espnet3/components/callbacks/test_logging_callback.py"
+    ],
+    "notes": "Checked and OK: monitor names containing '/' are mapped to '.' in ModelCheckpoint filenames (default_callbacks.py:487) so no nested dirs; a mis-spelled monitor is rejected by Lightning after the first validation with a clear MisconfigurationException; AverageCheckpointsCallback runs on rank 0 only, handles deepspeed 'module' and Lightning 'state_dict' wrappers, compares keys against pl_module.state_dict() (ESPnetLightningModule overrides state_dict to the inner model, lightning_module.py:1162) and strips a 'model.' prefix only as fallback; EMA update timing (global_step delta) is correct w.r.t. accumulate_grad_batches and the manual multi-optimizer path (one update per batch); EMA is created in setup() where Lightning fakes pl_module.device to the root device so EMA and online model end up on the same device; DDP broadcast of EMA weights is in registration order and restore is keyed on _backup so non-zero ranks restore too; last.ckpt is a relative symlink (Lightning _link_checkpoint) and Lightning's ckpt_path='last' skips dangling symlinks with a warning (no resume code in espnet3 to exercise this); _log_stats logs train metrics with default on_step=True/on_epoch=False so MetricsLogger sees no *_step/*_epoch duplicates; MetricsLogger.on_validation_epoch_end reads reduced epoch metrics (logger_connector.epoch_end_reached runs before the hook). Not checked: FSDP/DeepSpeed behaviour of EMA broadcast and averaging, real multi-rank runs (single CPU host), whether the base System re-runs `train` when exp_dir already has checkpoints. The repro (scratch repro.py) used a plain LightningModule with get_default_callbacks + EMACallback, lightning 2.6.1, CPU; its EMA best-ckpt comparison used final weights vs an earlier-epoch ckpt, so the 'online weights saved' claim rests on the verified callback order + Lightning source rather than a tensor equality. The 2 suite failures (test_task_utils svs) are outside this area."
+  },
+  "assumptions": [
+    "Lightning 2.6.1 semantics (callback reordering, weights_only gating of callbacks' on_save_checkpoint) hold for the versions espnet3 supports.",
+    "Recipes use the TEMPLATE trainer block (logger set, log_every_n_steps set); findings about missing keys assume a user-edited block.",
+    "egs3/librispeech_100 has no training.yaml in conf/; conf/tuning/training_e_branchformer.yaml was taken as its training config."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/components/callbacks/default_callbacks.py",
+      "lines": "120-127,195-199,504-511",
+      "category": "bug",
+      "severity": "high",
+      "summary": "AverageCheckpointsCallback averages a stale top-K set: Lightning reorders every ModelCheckpoint to the END of trainer.callbacks, so on_validation_end averaging runs before this validation's best checkpoint is saved; the final epoch's best ckpt is never averaged and `ave_{K}best.pth` is never written when max_epochs <= K.",
+      "scenario": "Default TEMPLATE criterion ('valid/loss',3,'min') with max_epochs=3: validations at epochs 0,1,2 -> averaging sees best_k_models of size 0,1,2 -> files valid.loss.ave_1best.pth and valid.loss.ave_2best.pth exist, valid.loss.ave_3best.pth never exists although best_k_models ends with 3 entries. With max_epochs=100 the last ave_3best.pth written excludes the epoch-99 checkpoint even if it is the best, and includes the checkpoint it displaced. egs3/librispeech_100/asr/conf/inference.yaml:61 hardcodes `${exp_dir}/valid.acc.ave_10best.pth` (criterion valid/acc,10,max): missing until the 11th validation, stale by one validation afterwards; mini_an4 (max_epochs=1) never gets an averaged model at all.",
+      "evidence": "default_callbacks.py:504-511 builds [last_ckpt, *best_ckpts, ave_ckpt, ...]; lightning/pytorch/trainer/connectors/callback_connector.py:240-258 `_reorder_callbacks` moves all `Checkpoint` instances after other callbacks. Verified run (lightning 2.6.1): runtime order = [AverageCheckpointsCallback, LearningRateMonitor, MetricsLogger, TQDMProgressBar, ModelCheckpoint, ModelCheckpoint]; files after 3 epochs = epoch{0,1,2}_*_valid.loss.ckpt, last.ckpt, step12.ckpt, valid.loss.ave_1best.pth, valid.loss.ave_2best.pth (no ave_3best) while best_k_models has 3 entries. L125 reads `ckpt_callback.best_k_models` before ModelCheckpoint.on_validation_end updates it.",
+      "suggested_fix": "Make AverageCheckpointsCallback a `Checkpoint` subclass placed after the ModelCheckpoints (so it is reordered with them, order preserved), or perform the averaging in `on_train_epoch_end`/`on_fit_end` after checkpoints are saved, or average on demand in the infer stage from ModelCheckpoint.best_k_models. Also write to a stable name (e.g. `{monitor}.ave_best.pth`) or delete stale `ave_{k}best.pth` files.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "egs3/librispeech_100/asr/conf/inference.yaml",
+        "egs3/mini_an4/asr/conf/inference.yaml",
+        "espnet3/components/trainers/trainer.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/callbacks/ema.py",
+      "lines": "130-136,146-149",
+      "category": "bug",
+      "severity": "high",
+      "summary": "With EMACallback enabled, the best-K checkpoints are selected by a metric computed on EMA weights but store the ONLINE weights and contain no EMA state: EMACallback.on_validation_end (restore) runs before ModelCheckpoint.on_validation_end (save) because Lightning moves checkpoints to the end, and best ckpts use save_weights_only=True which skips callbacks' on_save_checkpoint.",
+      "scenario": "trainer.callbacks: [{_target_: espnet3.components.callbacks.ema.EMACallback}] with the default best_model_criterion. Validation runs on EMA weights (swap in on_validation_start), valid/loss is logged for EMA weights; EMACallback.on_validation_end restores online weights; then ModelCheckpoint saves `epochN_stepM_valid.loss.ckpt` from `pl_module.state_dict()` = online weights. The infer stage / AverageCheckpointsCallback therefore load models that never produced the monitored score; the EMA weights exist only inside last.ckpt (`ema_model_state_dict`), which inference does not read.",
+      "evidence": "Verified run: runtime order [..., EMACallback, ModelCheckpoint, ModelCheckpoint]; best ckpt keys = ['epoch','global_step','loops','pytorch-lightning_version','state_dict'] (no ema_model_state_dict); last.ckpt has ema_model_state_dict. lightning checkpoint_connector.py dump_checkpoint: `if not weights_only: call._call_callbacks_on_save_checkpoint(...)`; default_callbacks.py:490 `save_weights_only=True`. ema.py:134-136 restores in on_validation_end; ema.py:146-149 only writes EMA state via on_save_checkpoint.",
+      "suggested_fix": "Either keep EMA weights swapped in until after the checkpoint callbacks run (e.g. restore in `on_train_epoch_end`/`on_validation_epoch_end` is too early too; make EMACallback a `Checkpoint` subclass placed after the ModelCheckpoints, or restore in `on_train_batch_start`), or save the EMA weights as the model `state_dict` when EMA is active, or set save_weights_only=False so `ema_model_state_dict` is included and teach inference to prefer it. Document the current semantics at minimum.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/callbacks/default_callbacks.py",
+        "test/espnet3/components/callbacks/test_ema.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "96-106",
+      "category": "design",
+      "severity": "high",
+      "summary": "Default callbacks (last/best ModelCheckpoint, AverageCheckpoints, LearningRateMonitor, MetricsLogger, TQDMProgressBar) are hard-wired and cannot be disabled or replaced, so ordinary Lightning trainer options crash at startup with messages that do not mention ESPnet3's defaults; user callbacks are only appended (duplicates allowed).",
+      "scenario": "trainer.logger: false (or any config without loggers) -> `MisconfigurationException: Cannot use LearningRateMonitor callback with Trainer that has no logger.` at on_train_start. trainer.enable_progress_bar: false (typical for batch jobs) -> `MisconfigurationException: Trainer was configured with enable_progress_bar=False but found TQDMProgressBar in callbacks list.` trainer.enable_checkpointing: false -> same class of error for ModelCheckpoint. Adding a ModelCheckpoint/LearningRateMonitor via trainer.callbacks yields two instances (codified in test_duplicate_learning_rate_monitor_from_config).",
+      "evidence": "trainer.py:96-106 always calls get_default_callbacks and appends config callbacks; default_callbacks.py:499,502,504-511. Verified run: logger=False raised the LearningRateMonitor MisconfigurationException; enable_progress_bar=False raised the TQDMProgressBar MisconfigurationException (lightning callback_connector.py:148, lr_monitor.py:121-124). Note: lightning treats logger=None as no logger (`configure_logger`: `if not logger`), yet test_logger_variants asserts a TensorBoardLogger for None, so behaviour with `logger:` unset should be re-checked.",
+      "suggested_fix": "Build defaults conditionally (skip LearningRateMonitor when no logger, skip TQDMProgressBar when enable_progress_bar is False, skip checkpoint callbacks when enable_checkpointing is False), and/or expose per-callback switches in the trainer config; de-duplicate by type when merging user callbacks.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/callbacks/default_callbacks.py",
+        "test/espnet3/components/callbacks/test_callback.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/conf/training.yaml",
+      "lines": "202-204",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "The documented top-level `init:` key ('forwarded to ESPnet's initializer', e.g. xavier_uniform) is never read: trainer.py looks for `init` inside the `trainer` block only, and if a user moves it there the un-stripped key is forwarded to lightning.Trainer and raises TypeError.",
+      "scenario": "User sets top-level `init: xavier_uniform` as the template suggests -> training.py:37 passes config=config.trainer, trainer.py:74 `getattr(self.config, 'init')` is None -> no initialization, silently different training. User sets `trainer.init: xavier_uniform` -> initialize() runs but `init` stays in trainer_config (not in the deletion list at trainer.py:141-148) -> `lightning.Trainer(init=...)` TypeError: unexpected keyword argument.",
+      "evidence": "training.yaml:202-204; training.py:34-39 (`config=config.trainer`); trainer.py:74-75 and 141-149. grep for other consumers of `.init`/`initialize(` in espnet3/: only trainer.py (transducer_task.py uses espnet2 argparse `args.init`).",
+      "suggested_fix": "Read `init` from the full training config (pass it explicitly to ESPnet3LightningTrainer from training.py) or move the documented key under `trainer:` and add 'init' to the stripped-key list.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/trainers/trainer.py",
+        "espnet3/systems/base/training.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/base/training.py",
+      "lines": "96-100",
+      "category": "design",
+      "severity": "medium",
+      "summary": "The train stage has no resume/ckpt_path discovery (`fit: {}` by default); re-running `--stages train` in the same exp_dir silently starts from scratch and, because the last-checkpoint callback uses the version counter, produces `last-v1.ckpt` while `last.ckpt` keeps pointing at the previous run; `last-v1.ckpt` also escapes publication.yaml's `last.ckpt` exclude pattern.",
+      "scenario": "Training crashes (OOM/preemption) and the user re-runs `python run.py --stages train ...`. No ckpt_path is passed -> training restarts at epoch 0; ModelCheckpoint(save_last='link') finds an existing last.ckpt whose path != self.last_model_path ('' on a fresh run) -> writes last-v1.ckpt; old step*.ckpt / best ckpts from the first run remain next to the new ones. pack_model bulk copy excludes only `last.ckpt` and `**/step*.ckpt`, so the multi-GB `last-v1.ckpt` (optimizer states included) is packed.",
+      "evidence": "training.py:96-100 (`fit_kwargs` only from config.fit; no ckpt_path logic anywhere in espnet3/, grep 'ckpt_path|last.ckpt|resume' has no hits outside comments); default_callbacks.py:467-474 (save_last='link', default enable_version_counter=True); lightning model_checkpoint.py:912-916. Verified run: second fit() into the same exp_dir left ['epoch0..2 ckpts','last-v1.ckpt','last.ckpt','step12.ckpt','step4.ckpt'] with last.ckpt -> step12.ckpt (old run). egs3/TEMPLATE/asr/conf/publication.yaml:69-73 exclude list.",
+      "suggested_fix": "Default `ckpt_path='last'` when exp_dir/last.ckpt exists (Lightning resolves 'last' from ModelCheckpoint dirpaths and warns if none), or refuse to train into a non-empty exp_dir without an explicit flag; set enable_version_counter=False on the last-ckpt callback; broaden the publication exclude to `last*.ckpt`.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/callbacks/default_callbacks.py",
+        "egs3/TEMPLATE/asr/conf/publication.yaml",
+        "egs3/TEMPLATE/asr/conf/training.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "113-138",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "`reload_dataloaders_every_n_epochs=1` and `use_distributed_sampler=False` are only forced for the espnet iter_factory path, but DataLoaderBuilder's epoch/rank shard rotation (total_shards/dist_world_size) applies to the standard-DataLoader path too, so a sharded standard dataloader never rotates shards and is additionally subsampled by Lightning's DistributedSampler.",
+      "scenario": "dataloader.train without an `iter_factory` key but with total_shards: 4, dist_world_size: 2 (the keys sit next to iter_factory in the template and survive a switch to a plain DataLoader). trainer.py:113 hasattr(...,'iter_factory') is False -> reload stays at Lightning default 0 -> train_dataloader() is built once with epoch=0 -> shard_idx=(0*2+rank)%4 forever; is_espnet_sampler False -> use_distributed_sampler stays True -> each rank's shard is further split r::world_size, so each epoch consumes 1/world_size of the assigned shard and shards 2,3 are never seen.",
+      "evidence": "trainer.py:113-133 (`if hasattr(self.model.config.dataloader.train, 'iter_factory')` guards the override), 137-138; espnet3/components/data/dataloader.py:140-141 `shard_idx = ((self.epoch * runtime_world_size) + rank) % total_shards; return dataset.shard(shard_idx)` executed in build() for both branches (dataloader.py:197-217); lightning_module.py:1145-1152 passes `epoch=self.current_epoch`.",
+      "suggested_fix": "Force reload_dataloaders_every_n_epochs=1 (and use_distributed_sampler=False) whenever total_shards is configured, independent of iter_factory; or make _maybe_shard_dataset assert the trainer settings it needs.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/dataloader.py",
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/components/callbacks/test_callback.py",
+      "lines": "69-107,386-414",
+      "category": "test-gap",
+      "severity": "medium",
+      "summary": "All AverageCheckpointsCallback and EMACallback tests drive hooks by hand on mocks/SimpleNamespace trainers; nothing exercises a real lightning.Trainer, so the hook-ordering defects (stale top-K averaging, best ckpts holding online weights, missing ave_{K}best.pth) are invisible, and one test codifies callback duplication as expected behaviour.",
+      "scenario": "test_average_checkpoints_callback_on_validation_end patches torch.load/torch.save and injects best_k_models directly; test_ema.py::_make_trainer is a SimpleNamespace; test_logging_callback.py calls the non-existent hook `on_after_optimizer_step` directly and its header table (lines 12-18) describes load_line tests copied from another file. A 3-epoch CPU run with get_default_callbacks would have caught the ave_3best.pth absence.",
+      "evidence": "test_callback.py:76-78 mock.patch('torch.load'), :84-88 mock.Mock(best_k_models=...); test_ema.py:247-252 SimpleNamespace trainer; test_logging_callback.py:52 `callback.on_after_optimizer_step(trainer, model)`; test_callback.py:386-414 asserts two LearningRateMonitor instances 'because no deduplication or warning is implemented yet'.",
+      "suggested_fix": "Add one small end-to-end test (tiny LightningModule, 3 epochs, CSVLogger) asserting the averaged file set, that the best ckpt state_dict equals the weights that produced the monitored metric with EMA on, and the runtime callback order; fix the copied header table.",
+      "confidence": 0.9,
+      "test_name": "test_average_checkpoints_callback_on_validation_end",
+      "related_files": [
+        "test/espnet3/components/callbacks/test_ema.py",
+        "test/espnet3/components/callbacks/test_logging_callback.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/default_callbacks.py",
+      "lines": "295-305",
+      "category": "bug",
+      "severity": "low",
+      "summary": "MetricsLogger.on_after_optimizer_step is not a Lightning Callback hook, so `optim_step_time` is never recorded (dead code) while the docstring/log format imply it is reported.",
+      "scenario": "Any training run: Lightning calls on_before_optimizer_step (starts the timer) but never on_after_optimizer_step; `_sum['optim_step_time']` is never populated, and the summary line lists iter_time/forward_time/backward_time/train_time only. test_logging_callback.py:52 calls the method manually, hiding the gap.",
+      "evidence": "grep -rn on_after_optimizer_step over lightning/pytorch (2.6.1): no hits; only default_callbacks.py:299 defines it. Lightning's Callback exposes on_before_optimizer_step/on_before_zero_grad only.",
+      "suggested_fix": "Measure the optimizer step in `on_before_zero_grad` (called right after optimizer.step in automatic optimization) or drop the metric; in the manual path call the timer from the LightningModule.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/callbacks/test_logging_callback.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "123-131",
+      "category": "bug",
+      "severity": "low",
+      "summary": "The use_distributed_sampler warning is dead/inverted: it tests `hasattr(self.model.config, 'use_distributed_sampler')` (the full training config, where the key never lives) but reads `self.config.use_distributed_sampler` (trainer block), and warns when the value is ALREADY False (`not ...`); both warning strings also lack a space ('to setreload_dataloaders_every_n_epochs').",
+      "scenario": "trainer.use_distributed_sampler: true with an espnet iter_factory -> no warning (hasattr on model.config is False); the value is then silently overridden to False at line 138. If a user put use_distributed_sampler at the top level and False in trainer, the warning fires although the value is already correct.",
+      "evidence": "trainer.py:123-131 vs :137-138; message strings :118-121, :127-130.",
+      "suggested_fix": "Check `getattr(self.config, 'use_distributed_sampler', None) is True` and warn about the override; fix the strings.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "47-53,98,133,138",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "ESPnet3LightningTrainer advertises `config: Union[DictConfig, Namespace, Dict[str, Any]]` but uses attribute access and attribute assignment on it, so a plain dict fails with AttributeError; it also mutates the caller's shared trainer config in place before deep-copying.",
+      "scenario": "ESPnet3LightningTrainer(model=lit, exp_dir='exp', config={'max_epochs': 1, 'log_every_n_steps': 10}) -> `self.config.log_every_n_steps` AttributeError: 'dict' object has no attribute 'log_every_n_steps'; with an espnet sampler `self.config.reload_dataloaders_every_n_epochs = 1` would also fail. With a DictConfig the assignment at :133/:138 changes `training_config.trainer` for the rest of the process (stages share one config).",
+      "evidence": "trainer.py:51 type hint; :98 `self.config.log_every_n_steps`; :133 `self.config.reload_dataloaders_every_n_epochs = 1`; :138 `self.config.use_distributed_sampler = False`; :140 deepcopy happens after the mutation.",
+      "suggested_fix": "Normalise `config` to a DictConfig (OmegaConf.create) at the top of __init__ and operate on a private copy; or narrow the type hint.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/training.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "96-100",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "`trainer.log_every_n_steps` is silently mandatory: when the key is absent the DictConfig yields None and get_default_callbacks' typeguard rejects it with 'argument log_interval (None) is not an instance of int', although Lightning itself defaults the option to 50 and the template does not mark it required.",
+      "scenario": "A recipe trainer block copied from Lightning docs without log_every_n_steps -> TypeCheckError from typeguard at trainer construction, pointing at get_default_callbacks rather than at the missing config key.",
+      "evidence": "trainer.py:98 `self.config.log_every_n_steps` (no default); default_callbacks.py:424-430 `@typechecked ... log_interval: int = 500`.",
+      "suggested_fix": "Use `getattr(self.config, 'log_every_n_steps', 50)` or validate required trainer keys with an explicit error message.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/callbacks/default_callbacks.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/ema.py",
+      "lines": "53-62,151-154",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "EMACallback creates the EMA copy only for stage == 'fit', so trainer.validate()/trainer.test() with a checkpoint never swap EMA weights in (and on_load_checkpoint skips the saved EMA state), contrary to the class docstring 'Swaps EMA weights in for validation/test'.",
+      "scenario": "`trainer.validate(ckpt_path='exp/last.ckpt')` after an EMA run: setup(stage='validate') leaves self.ema None -> on_load_checkpoint ignores `ema_model_state_dict` -> _swap_in_ema returns early -> metrics are computed on online weights, silently different from the numbers logged during training.",
+      "evidence": "ema.py:56 `if stage == 'fit' and trainer.is_global_zero`; ema.py:153 `if 'ema_model_state_dict' in checkpoint and self.ema is not None`; docstring ema.py:13-18. test_ema.py::test_callback_setup_skips_other_stage_or_rank codifies the behaviour.",
+      "suggested_fix": "Create the EMA holder for validate/test too when a checkpoint provides `ema_model_state_dict`, or narrow the docstring.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/callbacks/test_ema.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/default_callbacks.py",
+      "lines": "156-169",
+      "category": "bug",
+      "severity": "low",
+      "summary": "The 'integer-type not averaged' guard uses `str(dtype).startswith('torch.int')`, which misses torch.uint8 and torch.bool buffers; those are summed and divided into float tensors before being saved in the averaged state_dict.",
+      "scenario": "A model with a `torch.bool` mask buffer that is True in one of three checkpoints: sum -> bool OR -> True, then `/3` -> float 0.333 saved; load_state_dict copies back to bool as True. For a uint8 lookup buffer the averaged float is truncated on load. Edge case; bf16/fp16 weights are also averaged in their own low precision (sum of K values before division).",
+      "evidence": "default_callbacks.py:157 `if str(avg_state_dict[k].dtype).startswith('torch.int')`; :154 accumulation `avg_state_dict[k] + state_dict[k]`; :169 division.",
+      "suggested_fix": "Use `not (torch.is_floating_point(t) or torch.is_complex(t))` as the guard and accumulate floats in float32 before casting back.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/default_callbacks.py",
+      "lines": "271-279,342,365,386",
+      "category": "bug",
+      "severity": "low",
+      "summary": "MetricsLogger's `iter_time` spans validation, checkpointing and the per-epoch dataloader rebuild because `_last_batch_end_time` is never cleared by `_reset()`; the first batch of every epoch (and every log window that follows validation) reports an inflated iter_time.",
+      "scenario": "reload_dataloaders_every_n_epochs=1 (forced for espnet iter_factory) + validation + checkpoint averaging at epoch end take e.g. 90 s; the next epoch's first on_train_batch_start adds 90 s to `_sum['iter_time']`, so the first '1-100batch' line shows iter_time~0.9 s instead of ~1 ms and the epoch_summary iter_time is skewed.",
+      "evidence": "default_callbacks.py:275-277 uses `t - self._last_batch_end_time`; `_reset()` (256-264) and `_reset_epoch()` (266-269) do not touch `_last_batch_end_time`; it is set at :342 on every batch end.",
+      "suggested_fix": "Reset `_last_batch_end_time` in on_train_epoch_start/on_validation_end, or compute iter_time only within an epoch.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/default_callbacks.py",
+      "lines": "120-132,195-199",
+      "category": "design",
+      "severity": "low",
+      "summary": "AverageCheckpointsCallback re-loads and re-averages every top-K checkpoint from disk on every validation (including the resume sanity-check validation) and writes a differently named file for every K seen, leaving stale `ave_1best`..`ave_{K-1}best` files and failing hard if a restored best_k_models path no longer exists.",
+      "scenario": "K=10 large models: 10 full checkpoint loads per epoch on rank 0 while other ranks wait at the next barrier. Resume after moving/cleaning exp_dir: best_k_models (restored from last.ckpt callback state) points at deleted files -> safe_torch_load FileNotFoundError during the sanity check. Old ave_{k}best.pth files never removed; a consumer that picks the wrong K silently loads an older average.",
+      "evidence": "default_callbacks.py:120-132 loop over all best_k_models each on_validation_end; no `trainer.sanity_checking` guard; :195-199 filename with `len(checkpoints)`.",
+      "suggested_fix": "Skip during sanity_checking, average only when best_k_models changed (compare the key set), use a fixed filename, and tolerate/skip missing paths with a warning.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}

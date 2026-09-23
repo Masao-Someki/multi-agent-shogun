@@ -1,0 +1,401 @@
+
+path = 'espnet2.tasks.gan_svs.GANSVSTask'
+
+    def _locate(path: str) -> Any:
+        """
+        Locate an object by name or dotted path, importing as necessary.
+        This is similar to the pydoc function `locate`, except that it checks for
+        the module from the given path from back to front.
+        """
+        if path == "":
+            raise ImportError("Empty path")
+        from importlib import import_module
+        from types import ModuleType
+    
+        parts = [part for part in path.split(".")]
+        for part in parts:
+            if not len(part):
+                raise ValueError(
+                    f"Error loading '{path}': invalid dotstring."
+                    + "\nRelative imports are not supported."
+                )
+        assert len(parts) > 0
+        part0 = parts[0]
+        try:
+            obj = import_module(part0)
+        except Exception as exc_import:
+            raise ImportError(
+                f"Error loading '{path}':\n{repr(exc_import)}"
+                + f"\nAre you sure that module '{part0}' is installed?"
+            ) from exc_import
+        for m in range(1, len(parts)):
+            part = parts[m]
+            try:
+                obj = getattr(obj, part)
+            except AttributeError as exc_attr:
+                parent_dotpath = ".".join(parts[:m])
+                if isinstance(obj, ModuleType):
+                    mod = ".".join(parts[: m + 1])
+                    try:
+                        obj = import_module(mod)
+                        continue
+                    except ModuleNotFoundError as exc_import:
+>                       raise ImportError(
+                            f"Error loading '{path}':\n{repr(exc_import)}"
+                            + f"\nAre you sure that '{part}' is importable from module '{parent_dotpath}'?"
+                        ) from exc_import
+E                       ImportError: Error loading 'espnet2.tasks.gan_svs.GANSVSTask':
+E                       ModuleNotFoundError("No module named 'pkg_resources'")
+E                       Are you sure that 'gan_svs' is importable from module 'espnet2.tasks'?
+
+.pixi/envs/default/lib/python3.10/site-packages/hydra/_internal/utils.py:653: ImportError
+
+During handling of the above exception, another exception occurred:
+
+task_path = 'espnet2.tasks.gan_svs.GANSVSTask', expected_cls_name = 'GANSVSTask'
+
+    @pytest.mark.parametrize(
+        "task_path, expected_cls_name",
+        [
+            ("espnet2.tasks.asr.ASRTask", "ASRTask"),
+            ("espnet2.tasks.asr_transducer.ASRTransducerTask", "ASRTransducerTask"),
+            ("espnet2.tasks.asvspoof.ASVSpoofTask", "ASVSpoofTask"),
+            ("espnet2.tasks.diar.DiarizationTask", "DiarizationTask"),
+            ("espnet2.tasks.enh.EnhancementTask", "EnhancementTask"),
+            ("espnet2.tasks.enh_s2t.EnhS2TTask", "EnhS2TTask"),
+            (
+                "espnet2.tasks.enh_tse.TargetSpeakerExtractionTask",
+                "TargetSpeakerExtractionTask",
+            ),
+            ("espnet2.tasks.gan_svs.GANSVSTask", "GANSVSTask"),
+            ("espnet2.tasks.hubert.HubertTask", "HubertTask"),
+            ("espnet2.tasks.lm.LMTask", "LMTask"),
+            ("espnet2.tasks.mt.MTTask", "MTTask"),
+            ("espnet2.tasks.s2st.S2STTask", "S2STTask"),
+            ("espnet2.tasks.s2t.S2TTask", "S2TTask"),
+            ("espnet2.tasks.slu.SLUTask", "SLUTask"),
+            ("espnet2.tasks.spk.SpeakerTask", "SpeakerTask"),
+            ("espnet2.tasks.st.STTask", "STTask"),
+            ("espnet2.tasks.svs.SVSTask", "SVSTask"),
+            ("espnet2.tasks.uasr.UASRTask", "UASRTask"),
+        ],
+    )
+    @pytest.mark.execution_timeout(30)
+    def test_get_task_class_returns_correct_class(task_path, expected_cls_name):
+        try:
+>           cls = get_task_class(task_path)
+
+test/espnet3/utils/test_task_utils.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+task_path = 'espnet2.tasks.gan_svs.GANSVSTask'
+
+    def get_task_class(task_path: str):
+        """Get the ESPnet-2 Task class from the given task path."""
+        try:
+            ez_task = get_class(task_path)
+        except Exception as e:
+>           raise RuntimeError(f"Failed to get task class from {task_path}: {e}")
+E           RuntimeError: Failed to get task class from espnet2.tasks.gan_svs.GANSVSTask: Error loading 'espnet2.tasks.gan_svs.GANSVSTask':
+E           ModuleNotFoundError("No module named 'pkg_resources'")
+E           Are you sure that 'gan_svs' is importable from module 'espnet2.tasks'?
+
+espnet3/utils/task_utils.py:34: RuntimeError
+------------------------------ Captured log call -------------------------------
+ERROR    hydra.utils:utils.py:39 Error getting class at espnet2.tasks.gan_svs.GANSVSTask: Error loading 'espnet2.tasks.gan_svs.GANSVSTask':
+ModuleNotFoundError("No module named 'pkg_resources'")
+Are you sure that 'gan_svs' is importable from module 'espnet2.tasks'?
+_ test_get_task_class_returns_correct_class[espnet2.tasks.svs.SVSTask-SVSTask] _
+
+path = 'espnet2.tasks.svs.SVSTask'
+
+    def _locate(path: str) -> Any:
+        """
+        Locate an object by name or dotted path, importing as necessary.
+        This is similar to the pydoc function `locate`, except that it checks for
+        the module from the given path from back to front.
+        """
+        if path == "":
+            raise ImportError("Empty path")
+        from importlib import import_module
+        from types import ModuleType
+    
+        parts = [part for part in path.split(".")]
+        for part in parts:
+            if not len(part):
+                raise ValueError(
+                    f"Error loading '{path}': invalid dotstring."
+                    + "\nRelative imports are not supported."
+                )
+        assert len(parts) > 0
+        part0 = parts[0]
+        try:
+            obj = import_module(part0)
+        except Exception as exc_import:
+            raise ImportError(
+                f"Error loading '{path}':\n{repr(exc_import)}"
+                + f"\nAre you sure that module '{part0}' is installed?"
+            ) from exc_import
+        for m in range(1, len(parts)):
+            part = parts[m]
+            try:
+>               obj = getattr(obj, part)
+E               AttributeError: module 'espnet2.tasks' has no attribute 'svs'
+
+.pixi/envs/default/lib/python3.10/site-packages/hydra/_internal/utils.py:644: AttributeError
+
+During handling of the above exception, another exception occurred:
+
+path = 'espnet2.tasks.svs.SVSTask'
+
+    def _locate(path: str) -> Any:
+        """
+        Locate an object by name or dotted path, importing as necessary.
+        This is similar to the pydoc function `locate`, except that it checks for
+        the module from the given path from back to front.
+        """
+        if path == "":
+            raise ImportError("Empty path")
+        from importlib import import_module
+        from types import ModuleType
+    
+        parts = [part for part in path.split(".")]
+        for part in parts:
+            if not len(part):
+                raise ValueError(
+                    f"Error loading '{path}': invalid dotstring."
+                    + "\nRelative imports are not supported."
+                )
+        assert len(parts) > 0
+        part0 = parts[0]
+        try:
+            obj = import_module(part0)
+        except Exception as exc_import:
+            raise ImportError(
+                f"Error loading '{path}':\n{repr(exc_import)}"
+                + f"\nAre you sure that module '{part0}' is installed?"
+            ) from exc_import
+        for m in range(1, len(parts)):
+            part = parts[m]
+            try:
+                obj = getattr(obj, part)
+            except AttributeError as exc_attr:
+                parent_dotpath = ".".join(parts[:m])
+                if isinstance(obj, ModuleType):
+                    mod = ".".join(parts[: m + 1])
+                    try:
+>                       obj = import_module(mod)
+
+.pixi/envs/default/lib/python3.10/site-packages/hydra/_internal/utils.py:650: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+espnet2/tasks/svs.py:42: in <module>
+    from espnet2.tts.feats_extract.dio import Dio
+espnet2/tts/feats_extract/dio.py:11: in <module>
+    import pyworld
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    """PyWorld is a Python wrapper for WORLD vocoder.
+    
+    PyWorld wrappers WORLD, which is a free software for high-quality speech
+    analysis, manipulation and synthesis. It can estimate fundamental frequency (F0),
+    aperiodicity and spectral envelope and also generate the speech like input speech
+    with only estimated parameters.
+    
+    For more information, see https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder
+    """
+    
+    from __future__ import division, print_function, absolute_import
+    
+>   import pkg_resources
+E   ModuleNotFoundError: No module named 'pkg_resources'
+
+/work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/pyworld/__init__.py:13: ModuleNotFoundError
+
+The above exception was the direct cause of the following exception:
+
+task_path = 'espnet2.tasks.svs.SVSTask'
+
+    def get_task_class(task_path: str):
+        """Get the ESPnet-2 Task class from the given task path."""
+        try:
+>           ez_task = get_class(task_path)
+
+espnet3/utils/task_utils.py:32: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.pixi/envs/default/lib/python3.10/site-packages/hydra/utils.py:40: in get_class
+    raise e
+.pixi/envs/default/lib/python3.10/site-packages/hydra/utils.py:31: in get_class
+    cls = _locate(path)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = 'espnet2.tasks.svs.SVSTask'
+
+    def _locate(path: str) -> Any:
+        """
+        Locate an object by name or dotted path, importing as necessary.
+        This is similar to the pydoc function `locate`, except that it checks for
+        the module from the given path from back to front.
+        """
+        if path == "":
+            raise ImportError("Empty path")
+        from importlib import import_module
+        from types import ModuleType
+    
+        parts = [part for part in path.split(".")]
+        for part in parts:
+            if not len(part):
+                raise ValueError(
+                    f"Error loading '{path}': invalid dotstring."
+                    + "\nRelative imports are not supported."
+                )
+        assert len(parts) > 0
+        part0 = parts[0]
+        try:
+            obj = import_module(part0)
+        except Exception as exc_import:
+            raise ImportError(
+                f"Error loading '{path}':\n{repr(exc_import)}"
+                + f"\nAre you sure that module '{part0}' is installed?"
+            ) from exc_import
+        for m in range(1, len(parts)):
+            part = parts[m]
+            try:
+                obj = getattr(obj, part)
+            except AttributeError as exc_attr:
+                parent_dotpath = ".".join(parts[:m])
+                if isinstance(obj, ModuleType):
+                    mod = ".".join(parts[: m + 1])
+                    try:
+                        obj = import_module(mod)
+                        continue
+                    except ModuleNotFoundError as exc_import:
+>                       raise ImportError(
+                            f"Error loading '{path}':\n{repr(exc_import)}"
+                            + f"\nAre you sure that '{part}' is importable from module '{parent_dotpath}'?"
+                        ) from exc_import
+E                       ImportError: Error loading 'espnet2.tasks.svs.SVSTask':
+E                       ModuleNotFoundError("No module named 'pkg_resources'")
+E                       Are you sure that 'svs' is importable from module 'espnet2.tasks'?
+
+.pixi/envs/default/lib/python3.10/site-packages/hydra/_internal/utils.py:653: ImportError
+
+During handling of the above exception, another exception occurred:
+
+task_path = 'espnet2.tasks.svs.SVSTask', expected_cls_name = 'SVSTask'
+
+    @pytest.mark.parametrize(
+        "task_path, expected_cls_name",
+        [
+            ("espnet2.tasks.asr.ASRTask", "ASRTask"),
+            ("espnet2.tasks.asr_transducer.ASRTransducerTask", "ASRTransducerTask"),
+            ("espnet2.tasks.asvspoof.ASVSpoofTask", "ASVSpoofTask"),
+            ("espnet2.tasks.diar.DiarizationTask", "DiarizationTask"),
+            ("espnet2.tasks.enh.EnhancementTask", "EnhancementTask"),
+            ("espnet2.tasks.enh_s2t.EnhS2TTask", "EnhS2TTask"),
+            (
+                "espnet2.tasks.enh_tse.TargetSpeakerExtractionTask",
+                "TargetSpeakerExtractionTask",
+            ),
+            ("espnet2.tasks.gan_svs.GANSVSTask", "GANSVSTask"),
+            ("espnet2.tasks.hubert.HubertTask", "HubertTask"),
+            ("espnet2.tasks.lm.LMTask", "LMTask"),
+            ("espnet2.tasks.mt.MTTask", "MTTask"),
+            ("espnet2.tasks.s2st.S2STTask", "S2STTask"),
+            ("espnet2.tasks.s2t.S2TTask", "S2TTask"),
+            ("espnet2.tasks.slu.SLUTask", "SLUTask"),
+            ("espnet2.tasks.spk.SpeakerTask", "SpeakerTask"),
+            ("espnet2.tasks.st.STTask", "STTask"),
+            ("espnet2.tasks.svs.SVSTask", "SVSTask"),
+            ("espnet2.tasks.uasr.UASRTask", "UASRTask"),
+        ],
+    )
+    @pytest.mark.execution_timeout(30)
+    def test_get_task_class_returns_correct_class(task_path, expected_cls_name):
+        try:
+>           cls = get_task_class(task_path)
+
+test/espnet3/utils/test_task_utils.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+task_path = 'espnet2.tasks.svs.SVSTask'
+
+    def get_task_class(task_path: str):
+        """Get the ESPnet-2 Task class from the given task path."""
+        try:
+            ez_task = get_class(task_path)
+        except Exception as e:
+>           raise RuntimeError(f"Failed to get task class from {task_path}: {e}")
+E           RuntimeError: Failed to get task class from espnet2.tasks.svs.SVSTask: Error loading 'espnet2.tasks.svs.SVSTask':
+E           ModuleNotFoundError("No module named 'pkg_resources'")
+E           Are you sure that 'svs' is importable from module 'espnet2.tasks'?
+
+espnet3/utils/task_utils.py:34: RuntimeError
+------------------------------ Captured log call -------------------------------
+ERROR    hydra.utils:utils.py:39 Error getting class at espnet2.tasks.svs.SVSTask: Error loading 'espnet2.tasks.svs.SVSTask':
+ModuleNotFoundError("No module named 'pkg_resources'")
+Are you sure that 'svs' is importable from module 'espnet2.tasks'?
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:241
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:241
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+test/espnet3/components/data/test_collect_stats.py:234
+  /work/hdd/bbjs/someki1/00_system/00_espnet3/00_pull_requests/espnet_fix_issue/test/espnet3/components/data/test_collect_stats.py:234: PytestUnknownMarkWarning: Unknown pytest.mark.execution_timeout - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.execution_timeout(30)
+
+test/espnet3/components/data/test_collect_stats.py:364
+  /work/hdd/bbjs/someki1/00_system/00_espnet3/00_pull_requests/espnet_fix_issue/test/espnet3/components/data/test_collect_stats.py:364: PytestUnknownMarkWarning: Unknown pytest.mark.execution_timeout - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.execution_timeout(30)
+
+test/espnet3/components/data/test_collect_stats.py:413
+  /work/hdd/bbjs/someki1/00_system/00_espnet3/00_pull_requests/espnet_fix_issue/test/espnet3/components/data/test_collect_stats.py:413: PytestUnknownMarkWarning: Unknown pytest.mark.execution_timeout - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.execution_timeout(30)
+
+../../../../../../../nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/espnet_model_zoo/downloader.py:2
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/espnet_model_zoo/downloader.py:2: DeprecationWarning: The distutils package is deprecated and slated for removal in Python 3.12. Use setuptools or check PEP 632 for potential alternatives
+    from distutils.util import strtobool
+
+test/espnet3/components/modeling/test_model_with_optim_scheduler.py: 1 warning
+test/espnet3/components/trainers/test_trainer.py: 15 warnings
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/lightning/fabric/plugins/environments/slurm.py:204: The `srun` command is available on your system but is not used. HINT: If your intention is to run Lightning on SLURM, prepend your python command with `srun` like so: srun python /work/nvme/bbjs/someki1/python_envs/00_system/00_esp ...
+
+test/espnet3/components/modeling/test_model_with_optim_scheduler.py::test_multi_optimizer_fit_runs_with_real_trainer
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/lightning/pytorch/utilities/_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+test/espnet3/components/modeling/test_model_with_optim_scheduler.py::test_multi_optimizer_fit_runs_with_real_trainer
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/lightning/pytorch/trainer/connectors/data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=7` in the `DataLoader` to improve performance.
+
+test/espnet3/components/trainers/test_trainer.py::test_reload_dataloaders_enforced
+  /work/hdd/bbjs/someki1/00_system/00_espnet3/00_pull_requests/espnet_fix_issue/espnet3/components/trainers/trainer.py:118: UserWarning: ESPnet's dataloader requires to setreload_dataloaders_every_n_epochs = 1. Override the config to 1.
+    warnings.warn(
+
+test/espnet3/parallel/test_parallel.py::test_get_client_registers_worker_env
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/distributed/node.py:188: UserWarning: Port 8787 is already in use.
+  Perhaps you already have a cluster running?
+  Hosting the HTTP server on port 45415 instead
+    warnings.warn(
+
+test/espnet3/parallel/test_parallel.py::test_worker_env_conflict_detection
+  /work/nvme/bbjs/someki1/python_envs/00_system/00_espnet3/00_pull_requests/espnet_pr/.pixi/envs/default/lib/python3.10/site-packages/distributed/node.py:188: UserWarning: Port 8787 is already in use.
+  Perhaps you already have a cluster running?
+  Hosting the HTTP server on port 45509 instead
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test/espnet3/utils/test_task_utils.py::test_get_task_class_returns_correct_class[espnet2.tasks.gan_svs.GANSVSTask-GANSVSTask]
+FAILED test/espnet3/utils/test_task_utils.py::test_get_task_class_returns_correct_class[espnet2.tasks.svs.SVSTask-SVSTask]
+SKIPPED [1] test/espnet3/systems/asr/metrics/test_metrics.py:64: jiwer is required for this test
+SKIPPED [1] test/espnet3/systems/asr/metrics/test_metrics.py:117: jiwer not installed
+SKIPPED [1] test/espnet3/systems/asr/metrics/test_metrics.py:130: jiwer not installed
+SKIPPED [1] test/espnet3/systems/asr/test_task.py:89: could not import 'whisper': No module named 'whisper'
+SKIPPED [1] test/espnet3/systems/asr/test_task.py:112: could not import 'whisper': No module named 'whisper'
+SKIPPED [1] test/espnet3/systems/base/test_inference.py:523: CUDA is not available in test env.
+SKIPPED [1] test/espnet3/utils/test_writer_utils.py:66: CUDA is not available in test env.
+2 failed, 697 passed, 7 skipped, 27 warnings in 74.74s (0:01:14)
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+exit=1

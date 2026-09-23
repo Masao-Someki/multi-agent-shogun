@@ -1,0 +1,173 @@
+{
+  "area": "asr-system",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/systems/asr/system.py",
+      "espnet3/systems/asr/task.py",
+      "espnet3/systems/asr/transducer_task.py",
+      "espnet3/systems/asr/tokenizers/sentencepiece.py",
+      "egs3/mini_an4/asr/src/tokenizer.py",
+      "egs3/librispeech_100/asr/src/tokenizer.py",
+      "egs3/mini_an4/asr/conf/training_asr_transformer.yaml",
+      "egs3/mini_an4/asr/conf/training_asr_transducer.yaml",
+      "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml",
+      "test/espnet3/systems/asr/test_system.py",
+      "test/espnet3/systems/asr/test_task.py",
+      "test/espnet3/systems/asr/test_asr_transducer.py",
+      "test/espnet3/systems/asr/tokenizer/test_sentencepiece.py"
+    ],
+    "files_skimmed": [
+      "egs3/mini_an4/asr/conf/training_transducer_asr_conformer_rnnt.yaml",
+      "espnet2/tasks/asr.py (diff comparison)",
+      "espnet2/asr_transducer/espnet_transducer_model.py",
+      "espnet2/text/token_id_converter.py",
+      "ci/test_integration_espnet3.sh",
+      "ci/install.sh",
+      ".github/workflows/ci_on_ubuntu.yml",
+      ".github/actions/prepare-environment/action.yml",
+      "egs3/mini_an4/asr/dataset/builder.py",
+      "egs3/mini_an4/asr/dataset/dataset.py"
+    ],
+    "files_not_read": [],
+    "tests_inspected": [
+      "test/espnet3/systems/asr/test_system.py",
+      "test/espnet3/systems/asr/test_task.py",
+      "test/espnet3/systems/asr/test_asr_transducer.py",
+      "test/espnet3/systems/asr/tokenizer/test_sentencepiece.py"
+    ],
+    "notes": "task.py is essentially a verbatim copy of espnet2/tasks/asr.py (confirmed by diff/reading; its own docstring says so) - the FIXME(kamo)/other inherited comments are pre-existing espnet2 debt, not new, so not separately escalated. Special-token ordering convention ([<blank>,<unk>,...pieces...,<sos/eos>]) matches standard espnet2 CTC-blank=0 convention - checked, no issue. Streaming/transformer/transducer/RNNT configs (training_asr_streaming.yaml, training_asr_transformer.yaml, training_asr_transducer.yaml, training_transducer_asr_conformer_rnnt.yaml) are all wired into ci/test_integration_espnet3.sh - no orphaned config found. warprnnt_pytorch/k2 are not installed in this review sandbox (verified: ImportError) but ARE installed by the real CI's ci/install.sh (make target 'warp-transducer.done'), so the transducer RNNT path is not actually broken in CI - checked and OK, not filed as a bug. No model_type: unigram is used by any checked-in egs3 config (all use bpe), so the demonstrated vocab_size/required_chars crash is currently latent, not actively triggered by CI."
+  },
+  "assumptions": [
+    "Assumed this review sandbox's missing warprnnt_pytorch/k2 packages are a local-environment gap, not representative of the real GitHub Actions CI image, based on ci/install.sh explicitly building warp-transducer.done and k2.done as make targets.",
+    "Assumed 'realistic configured path' for character_coverage/user_defined_symbols includes any user editing the shipped tokenizer config values away from their current (default-matching) values, since the parameters are explicitly exposed and documented in train_sentencepiece's docstring."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/systems/asr/system.py",
+      "lines": "174-180",
+      "category": "bug",
+      "severity": "high",
+      "summary": "train_tokenizer() never forwards tokenizer_config.character_coverage or user_defined_symbols to train_sentencepiece(), silently dropping both config keys.",
+      "scenario": "A recipe author sets training_config.tokenizer.character_coverage: 0.995 (a standard espnet2 setting for non-English/CJK corpora) or tokenizer.user_defined_symbols: [\"<lang_en>\"] in their YAML, expecting it to reach SentencePiece training. train_tokenizer() calls train_sentencepiece(train_text_path, output_path, self.training_config.tokenizer.vocab_size, model_type=self.training_config.tokenizer.model_type) only - character_coverage silently falls back to the function's default (1.0) and user_defined_symbols falls back to [], regardless of what the YAML says, with no warning logged.",
+      "evidence": "system.py:174-180:\n    train_sentencepiece(\n        train_text_path,\n        output_path,\n        self.training_config.tokenizer.vocab_size,\n        model_type=self.training_config.tokenizer.model_type,\n    )\nsentencepiece.py:84-91 shows train_sentencepiece(dump_text_path, save_path, vocab_size=5000, character_coverage=1.0, model_type='bpe', user_defined_symbols=[]) - both extra params exist but are never passed through. All three shipped tokenizer configs (mini_an4 transformer/transducer/rnnt, librispeech e_branchformer) declare tokenizer.character_coverage explicitly, implying it's meant to be tunable.",
+      "suggested_fix": "Forward character_coverage=self.training_config.tokenizer.get('character_coverage', 1.0) and user_defined_symbols=self.training_config.tokenizer.get('user_defined_symbols', []) in the train_sentencepiece(...) call.",
+      "confidence": 0.92,
+      "test_name": null,
+      "related_files": ["espnet3/systems/asr/tokenizers/sentencepiece.py", "test/espnet3/systems/asr/test_system.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/system.py",
+      "lines": "94-99,101-183",
+      "category": "bug",
+      "severity": "high",
+      "summary": "_has_tokenizer() only checks for the presence of {model_type}.model/.vocab, so it neither detects an interrupted partial write (missing tokens.txt) nor staleness when tokenizer input text/config changes without also changing save_path.",
+      "scenario": "(1) Interrupted write: a training job on a Slurm/HPC allocation gets preempted/killed between sentencepiece.py's shutil.move of the .vocab file (L148-149) and its separate tokens.txt write (L152-161). On resubmission, _has_tokenizer() sees {model_type}.model/.vocab present and returns True, so train_tokenizer() is skipped - but the next stage needs ${tokenizer.save_path}/tokens.txt (referenced by every shipped model.token_list config), which was never written, and fails with no actionable message about the real cause. (2) Staleness: a user fixes a transcript-normalization bug and re-runs create_dataset + train without touching tokenizer.vocab_size/model_type (so save_path, which is only parameterized by ${tokenizer.model_type}_${tokenizer.vocab_size}, is unchanged). train() sees the old bpe.model/bpe.vocab still present at that path and skips train_tokenizer() entirely, silently training against a tokenizer built from the old, buggy transcripts.",
+      "evidence": "system.py:94-99:\n    def _has_tokenizer(self) -> bool:\n        tokenizer_config = self.training_config.tokenizer\n        output_path = Path(tokenizer_config.save_path)\n        model = output_path / f\"{tokenizer_config.model_type}.model\"\n        vocab = output_path / f\"{tokenizer_config.model_type}.vocab\"\n        return model.exists() and vocab.exists()\nsave_path in every shipped config: 'save_path: ${data_dir}/${tokenizer.model_type}_${tokenizer.vocab_size}' (no dependency on text_builder inputs, character_coverage, or user_defined_symbols).",
+      "suggested_fix": "Also require tokens.txt to exist in _has_tokenizer(); additionally hash/fingerprint the resolved text_builder config (and character_coverage/user_defined_symbols) into save_path or a sidecar marker file so a content/config change forces retraining instead of silently reusing stale artifacts.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": ["espnet3/systems/asr/tokenizers/sentencepiece.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/system.py",
+      "lines": "153-165",
+      "category": "robustness",
+      "severity": "high",
+      "summary": "train_tokenizer() cannot recover on its own from a crash between writing train.txt and finishing train_sentencepiece(): on retry it unconditionally raises because train_text_path already exists, permanently blocking the stage until a human deletes the file.",
+      "scenario": "A tokenizer-training run writes data_dir/train_tokenizer/train.txt (L162-169) and is then killed (OOM, preemption, Ctrl-C) before train_sentencepiece() finishes, so {model_type}.model/.vocab were never created. On resubmission, _has_tokenizer() correctly returns False, train_tokenizer() runs again, rebuilds the same train_text_path, and immediately hits `if train_text_path.exists(): raise RuntimeError(f\"Tokenizer training text already exists: {train_text_path}\")` at L162-165 - the retry fails every time until someone manually deletes train.txt, defeating the point of a resumable staged pipeline.",
+      "evidence": "system.py:162-165:\n        if train_text_path.exists():\n            raise RuntimeError(\n                f\"Tokenizer training text already exists: {train_text_path}\"\n            )\nTested (only) by test_asr_system_train_tokenizer_rejects_existing_train_text_path, which asserts the guard fires but does not flag that this makes the stage non-resumable after a partial failure.",
+      "suggested_fix": "Either write train.txt to a temp path and rename atomically once complete, or treat a pre-existing train.txt as reusable input (skip regenerating it) rather than a hard error, so a partial-failure retry can proceed.",
+      "confidence": 0.75,
+      "test_name": "test_asr_system_train_tokenizer_rejects_existing_train_text_path",
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/tokenizers/sentencepiece.py",
+      "lines": "196-224",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "add_special_tokens() inserts multiple new pieces into the raw SentencePiece ModelProto in reverse order relative to the returned token_list/embedding, because the insertion loop reuses the same insert_position for every token instead of incrementing it.",
+      "scenario": "Calling add_special_tokens(tokenizer, converter, embedding, ['<intent>', '<speaker>'], insert_after='<unk>') returns new_converter.token_list with '<intent>' then '<speaker>' in that order (correct), but the persisted _sp.model file's own piece list has them as '<speaker>' then '<intent>' (reversed), because `for token in add_token_list: ... m.pieces.insert(insert_position, p)` never advances insert_position between iterations. Since TokenIDConverter/SentencepiecesTokenizer resolve ids purely by piece string (espnet2/text/token_id_converter.py builds a plain string->index dict from the passed token_list), the returned (new_tokenizer, new_converter, new_embedding) triple stays self-consistent for immediate use, but any downstream consumer that reconstructs a token list from the model file's own piece order (the same pattern train_sentencepiece() itself uses to derive tokens.txt from a .vocab dump) will silently get ids that don't match the embedding rows produced here.",
+      "evidence": "sentencepiece.py:214-218:\n    m = model.ModelProto()\n    m.ParseFromString(open(tokenizer.model, \"rb\").read())\n    for token in add_token_list:\n        p = ModelProto.SentencePiece(piece=token, score=0.0)\n        m.pieces.insert(insert_position, p)\nVerified by execution (scratch script): after add_special_tokens(..., ['<intent>','<speaker>'], insert_after='<unk>'), new_converter.token_list == [..., '<intent>', '<speaker>', ...] but spm.SentencePieceProcessor loaded from the written _sp.model shows id 2/3 == '<speaker>'/'<intent>' (reversed). test_sentencepiece.py's test only checks new_converter.token_list, never sp.id_to_piece() on the raw model, so this has no coverage.",
+      "suggested_fix": "Increment insert_position after each insert (e.g. `m.pieces.insert(insert_position + i, p)` for i, token in enumerate(add_token_list)), or build the new ordering as a Python list and reassign m.pieces via del/extend to guarantee it matches new_token_list exactly.",
+      "confidence": 0.85,
+      "test_name": "test_train_sentencepiece_and_add_special_tokens",
+      "related_files": ["espnet2/text/token_id_converter.py", "test/espnet3/systems/asr/tokenizer/test_sentencepiece.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/asr/tokenizers/sentencepiece.py",
+      "lines": "84-149",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "train_sentencepiece() performs no validation that vocab_size (given character_coverage) is large enough for the corpus's required character/meta-piece count before invoking SentencePiece training, so under-sized configs fail with a low-level C++ RuntimeError instead of an actionable espnet3 error.",
+      "scenario": "Any recipe where the transcript character set is close to or exceeds the configured vocab_size (plausible for small vocab_size values like mini_an4's vocab_size: 30, or for a unigram model_type as flagged in the earlier salvage notes) fails with `RuntimeError: Internal: src/trainer_interface.cc(584) ... Vocabulary size is smaller than required_chars.` propagating straight out of ASRSystem.train_tokenizer(), with no indication from espnet3 of which config key to change.",
+      "evidence": "Verified by execution (scratch script train_sentencepiece(text, dir, vocab_size=20, model_type='unigram') on a ~20-unique-char corpus): 'RuntimeError: Internal: src/trainer_interface.cc(584) [(static_cast<int>(required_chars_.size() + meta_pieces_.size())) <= (trainer_spec_.vocab_size())] Vocabulary size is smaller than required_chars. 20 vs 21. Increase vocab_size or decrease character_coverage with --character_coverage option.' The same 'required_chars vs vocab_size' constraint applies to model_type: bpe (all 3 shipped mini_an4/librispeech configs use bpe with vocab_size: 30), not just unigram.",
+      "suggested_fix": "Wrap spm.SentencePieceTrainer.Train in a try/except that re-raises a RuntimeError naming the offending tokenizer.vocab_size/character_coverage config keys, or pre-compute the unique character count from the training text and fail fast with a clear message before invoking SentencePiece.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": ["egs3/mini_an4/asr/conf/training_asr_transformer.yaml"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/systems/asr/transducer_task.py",
+      "lines": "118-123,421-426",
+      "category": "design",
+      "severity": "medium",
+      "summary": "ASRTransducerTask.build_model unconditionally raises NotImplementedError for any non-None args.init, but add_task_arguments exposes --init as a normal free-form option with no warning, and this exact branch is untested.",
+      "scenario": "A user copies the init: xavier_uniform pattern from training_asr_transformer.yaml / training_asr_transducer.yaml (both in the same egs3/mini_an4/asr/conf directory, both routed through espnet3.systems.asr.task.ASRTask which does support init) into a recipe that sets `task: espnet3.systems.asr.transducer_task.ASRTransducerTask` (e.g. adapting training_transducer_asr_conformer_rnnt.yaml, which today avoids the crash only by omitting init: entirely). Training then crashes at build_model time with NotImplementedError('Currently not supported.', 'Initialization part will be reworked in a short future.').",
+      "evidence": "transducer_task.py:118-123 (--init argument, default=None, no choices restricting it or note that it's unsupported) and transducer_task.py:421-426:\n        if args.init is not None:\n            raise NotImplementedError(\n                \"Currently not supported.\",\n                \"Initialization part will be reworked in a short future.\",\n            )\ntest_asr_transducer.py::get_dummy_namespace() always sets init=None (line 66), so test_build_model never exercises this branch.",
+      "suggested_fix": "Either implement init support consistently with ASRTask, or reject a non-None --init at argument-parsing time with a clear error (or a warning + no-op) rather than deep inside build_model; document the limitation in the class docstring.",
+      "confidence": 0.75,
+      "test_name": "test_build_model",
+      "related_files": ["egs3/mini_an4/asr/conf/training_transducer_asr_conformer_rnnt.yaml", "egs3/mini_an4/asr/conf/training_asr_transducer.yaml"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/tokenizers/sentencepiece.py",
+      "lines": "17-81",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "prepare_sentences() is unused dead code in the actual pipeline (both real text builders bypass it) and crashes with an undocumented IndexError on any dump-file line without a space.",
+      "scenario": "If someone wires prepare_sentences into a new recipe's text_builder as its docstring examples suggest, any line in a dump file that is just an utterance id with no transcript (blank-text utterance) makes `line.split(\" \", maxsplit=1)[1]` raise IndexError, which is not listed among the documented Raises (FileNotFoundError, IOError).",
+      "evidence": "sentencepiece.py:76-78:\n    texts = \"\\n\".join(\n        [line.split(\" \", maxsplit=1)[1].replace(\"\\n\", \"\") for line in lines]\n    )\ngrep across espnet3/ and egs3/ finds no caller of prepare_sentences outside test/espnet3/systems/asr/tokenizer/test_sentencepiece.py; egs3/mini_an4/asr/src/tokenizer.py and egs3/librispeech_100/asr/src/tokenizer.py implement their own manifest/transcript parsing instead.",
+      "suggested_fix": "Guard the split with a length check and skip/log blank-text lines, or document the exact expected line format and raise a clear ValueError instead of letting IndexError propagate.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": ["test/espnet3/systems/asr/tokenizer/test_sentencepiece.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/tokenizers/sentencepiece.py",
+      "lines": "90",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "train_sentencepiece's user_defined_symbols parameter uses a mutable list default argument.",
+      "scenario": "Classic Python footgun: `def train_sentencepiece(..., user_defined_symbols: list = []):` shares one list object across calls. Currently harmless because the function only reads the list (passes it straight to spm.SentencePieceTrainer.Train), but any future edit that appends to it in place would silently leak state across calls/tests.",
+      "evidence": "sentencepiece.py:84-90:\n    def train_sentencepiece(\n        dump_text_path: Union[str, Path],\n        save_path: Union[str, Path],\n        vocab_size: int = 5000,\n        character_coverage: float = 1.0,\n        model_type: str = \"bpe\",\n        user_defined_symbols: list = [],\n    ):",
+      "suggested_fix": "Use `user_defined_symbols: list | None = None` and default to `[]` inside the function body.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/systems/asr/system.py",
+      "lines": "174",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "Leftover '# Example placeholder:' comment sits directly above the real, functioning train_sentencepiece(...) call, misleadingly suggesting the call is a stub.",
+      "scenario": "A future maintainer reading train_tokenizer() sees '# Example placeholder:' immediately before the actual production call to train_sentencepiece(...) and may assume it needs to be replaced with real logic, or may be confused about whether this path is actually exercised.",
+      "evidence": "system.py:174-180:\n        # Example placeholder:\n        train_sentencepiece(\n            train_text_path,\n            output_path,\n            self.training_config.tokenizer.vocab_size,\n            model_type=self.training_config.tokenizer.model_type,\n        )",
+      "suggested_fix": "Remove the stale comment.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}

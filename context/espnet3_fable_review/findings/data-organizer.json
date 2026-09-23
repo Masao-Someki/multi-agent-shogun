@@ -1,0 +1,482 @@
+{
+  "area": "data-organizer",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/components/data/data_organizer.py",
+      "espnet3/components/data/dataset.py",
+      "espnet3/components/data/dataset_module.py",
+      "espnet3/components/data/collect_stats.py",
+      "espnet3/components/data/dataloader.py",
+      "espnet3/components/data/__init__.py",
+      "egs3/mini_an4/asr/dataset/__init__.py",
+      "egs3/mini_an4/asr/dataset/dataset.py",
+      "egs3/mini_an4/asr/dataset/builder.py",
+      "egs3/mini_an4/asr/dataset/config.yaml",
+      "egs3/mini_an4/asr/src/preprocessor.py",
+      "egs3/librispeech_100/asr/dataset/__init__.py",
+      "egs3/librispeech_100/asr/dataset/dataset.py",
+      "egs3/librispeech_100/asr/dataset/builder.py",
+      "egs3/librispeech_100/asr/dataset/config.yaml",
+      "egs3/mini_an4/asr/conf/training_asr_transformer_split_preprocessor.yaml",
+      "egs3/TEMPLATE/asr/conf/training.yaml",
+      "egs3/TEMPLATE/tts/conf/training.yaml",
+      "egs3/TEMPLATE/tts/conf/inference.yaml",
+      "egs3/TEMPLATE/tts/conf/metrics.yaml",
+      "test/espnet3/components/data/test_data_organizer.py",
+      "test/espnet3/utils/test_dataset_module.py"
+    ],
+    "files_skimmed": [
+      "espnet3/utils/logging_utils.py",
+      "espnet3/utils/config_utils.py",
+      "espnet3/systems/base/inference_provider.py",
+      "espnet3/systems/base/inference_runner.py",
+      "espnet3/systems/base/system.py",
+      "espnet3/components/modeling/lightning_module.py",
+      "espnet2/train/preprocessor.py",
+      "espnet2/train/collate_fn.py",
+      "egs3/librispeech_100/asr/src/inference.py",
+      "egs3/mini_an4/asr/src/inference.py",
+      "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml",
+      "test/espnet3/components/data/test_collect_stats.py",
+      "test/espnet3/components/data/test_dataloader_builder.py"
+    ],
+    "files_not_read": [
+      "espnet3/components/data/dataset_builder.py (only referenced/greped, base class of MiniAn4Builder/LibriSpeech100Builder)"
+    ],
+    "tests_inspected": [
+      "test/espnet3/components/data/test_data_organizer.py",
+      "test/espnet3/utils/test_dataset_module.py",
+      "test/espnet3/components/data/test_collect_stats.py",
+      "test/espnet3/components/data/test_dataloader_builder.py"
+    ],
+    "notes": "Salvage reconstruction: the original phase1/data-organizer finder finished its full analysis and wrote review_log/findings/phase1_data-organizer.md plus the progress line, but was cut off (session limit) before emitting the structured JSON. This entry was reconstructed from that notes file and the original finder's own transcript, which included a full battery of scratch verification scripts (labelled checks A-S) run against the real repo via .pixi/envs/default/bin/python with PYTHONPATH=$REPO. Every one of the original 22 note items was independently re-confirmed in this pass by re-reading the current working tree (line numbers adjusted where the tree had drifted) and, for items with a corresponding lettered check, by reading the original check's actual captured output from the transcript jsonl (exact exception text quoted in the evidence fields). Item 22 (a bundle of 6 test-coverage gaps) was expanded into 6 separate test-gap findings per the salvage instructions. Not independently re-run: none of the scratch scripts were re-executed in this pass (would have duplicated verified work); verified_by_execution reflects the *original* finder's execution, confirmed via the transcript. collect_stats.py and dataset.py/data_organizer.py line ranges were fully re-read in this pass (cat -n) and matched the notes almost exactly (a few off-by-a-handful-of-lines shifts were corrected). No area of investigation was added beyond what the notes already covered."
+  },
+  "assumptions": [
+    "The repo tree matches the state the original finder read (no intervening edits to espnet3/components/data/*, egs3/mini_an4/asr/dataset/*, egs3/librispeech_100/asr/dataset/*, or the cited configs) -- confirmed by re-reading every cited file in this pass; line numbers already matched or were off by only a few lines.",
+    "'Verified by execution' in the original notes' header applies to every item except the one explicitly marked (analytic) (item 15 / builder.py wav-exists race), matching the lettered check transcript which covers items 1-13 and 17 with concrete captured output."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "165,393-398",
+      "category": "bug",
+      "severity": "high",
+      "summary": "CombinedDataset.shard() builds a fresh CombinedDataset whose _use_espnet_collator is always reset to False, dropping whatever flag the pre-shard dataset had.",
+      "scenario": "ESPnetLightningModule.train_dataloader sets organizer.train.use_espnet_collator = True on the *unsharded* CombinedDataset (lightning_module.py ~1130) so CommonCollateFn receives (uid, sample) tuples; DataLoaderBuilder.build then calls dataset.shard(shard_idx) per worker (dataloader.py:195) for ESPnet multiple-iterator mode. shard() (dataset.py:393-398) constructs `CombinedDataset(sharded_datasets, self.transforms, self.use_espnet_preprocessor)`, which re-runs __init__ and re-sets `self._use_espnet_collator = False` at line 165 -- the True flag set by the lightning module never reaches the sharded object because shard() has no way to carry it. The sharded dataset then returns plain sample dicts instead of (uid, sample) tuples to CommonCollateFn, breaking any pipeline that relies on ESPnet-style batching (uid-keyed lengths, ESPnetIterFactory sharding) once sharding is engaged.",
+      "evidence": "dataset.py:165 `self._use_espnet_collator = False` (unconditional in __init__); dataset.py:393-398 `sharded_datasets = [dataset.shard(shard_idx) for dataset in self.datasets]\\n        return CombinedDataset(sharded_datasets, self.transforms, self.use_espnet_preprocessor)` never forwards use_espnet_collator. Verified by execution: scratch check D (verify_organizer.py) -- 'orig flag True -> sharded flag False ; sharded[0] type: dict'.",
+      "suggested_fix": "Have shard() copy self.use_espnet_collator onto the new CombinedDataset after construction (e.g. `sharded = CombinedDataset(...); sharded.use_espnet_collator = self.use_espnet_collator; return sharded`), or pass it as a constructor kwarg.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/data/dataloader.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/collect_stats.py",
+      "lines": "40-50",
+      "category": "bug",
+      "severity": "high",
+      "summary": "collect_stats_batch decides whether dataset[i] returned a (uid, sample) tuple by checking dataset.use_espnet_preprocessor, but CombinedDataset only returns that tuple when use_espnet_collator is set -- a different, independently-controlled flag.",
+      "scenario": "TEMPLATE recipe with an empty `preprocessor:` (do_nothing, so CombinedDataset.use_espnet_preprocessor is False) plus the default CommonCollateFn expecting (uid, dict) pairs: collect_stats_batch takes the `else` branch (`uid, sample = str(i), item`), so `sample` ends up being the correct dict and collate_fn receives well-formed pairs -- but with the *reverse* combination (preprocessor is an AbsPreprocessor instance, so use_espnet_preprocessor is True, while use_espnet_collator is still False because only ESPnetLightningModule ever sets it and collect_stats runs outside that module) collect_stats_batch takes the `uid, sample = item` branch even though dataset[i] returned a plain dict, not a tuple -- unpacking a dict into two variables iterates its keys. In the TEMPLATE flow (preprocessor configured, custom/default collate) this manifests as a TypeError from within collate_fn/model.collect_feats.",
+      "evidence": "collect_stats.py:41-45 `if (hasattr(dataset, \"use_espnet_preprocessor\") and dataset.use_espnet_preprocessor): uid, sample = item` vs dataset.py:212-215/237-239/367-369 where the (uid, sample) tuple is gated on `self.use_espnet_collator`, a separate property defaulting to False and only flipped by ESPnetLightningModule (dataset.py:164 comment). Verified by execution: scratch check E -- 'collect_stats_batch FAILED: TypeError unhashable type: 'dict'' (empty-preprocessor + CommonCollateFn direction) and 'reverse case FAILED: TypeError string indices must be integers' (AbsPreprocessor + custom collate direction). test/espnet3/components/data/test_collect_stats.py's DummyDataset (lines 51-76) hard-codes `if self.use_espnet_preprocessor: return uid, {...}` in __getitem__, i.e. it encodes collect_stats_batch's assumption directly rather than mirroring CombinedDataset's real use_espnet_collator-gated contract, so the test suite cannot see this mismatch.",
+      "suggested_fix": "Check `getattr(dataset, 'use_espnet_collator', False)` (the flag that actually controls whether dataset[i] returns a tuple) instead of use_espnet_preprocessor, or have DataOrganizer/collect_stats explicitly set use_espnet_collator=True on the dataset before calling collect_stats_batch.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/dataset.py",
+        "test/espnet3/components/data/test_collect_stats.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "308-318,404-427",
+      "category": "bug",
+      "severity": "high",
+      "summary": "When preprocessor._target_ points at a factory *function* (not an AbsPreprocessor subclass), DataOrganizer's is_espnet check is False, so the train flag is never injected -- the resulting preprocessor is instantiated identically for train and valid, so valid silently runs with train=True.",
+      "scenario": "A shared (non-split) preprocessor config like `preprocessor: {_target_: src.preprocess.build_preprocessor, train: true, ...}` where build_preprocessor is a plain function returning an AbsPreprocessor instance (as in TEMPLATE training.yaml's documented factory-function example, conf/training.yaml:97-98 area). `_instantiate_preprocessor_from_config` builds `partial_preprocessor = instantiate(cfg, _partial_=True)`; since the target is a function, `partial_preprocessor.func` is that function, not a class, so `isinstance(partial_preprocessor.func, type)` is False and is_espnet stays False (data_organizer.py:413-417) -- the train flag from the config is used verbatim instead of being overridden per split. In `__init__`'s non-split branch (309-318), train_preprocessor is built with train_flag=True but that argument is ignored (since is_espnet is False); because train_preprocessor comes back as an AbsPreprocessor instance, valid_preprocessor is built by calling `_instantiate_preprocessor_from_config(preprocessor_cfg, False)` again -- but train_flag=False is *also* ignored for the same reason, so valid gets the exact same train value baked into the config (e.g. train: true). Both train and valid preprocessors end up with train=True, so validation runs with training-time augmentation on.",
+      "evidence": "data_organizer.py:413-417 `is_espnet = (hasattr(partial_preprocessor, \"func\") and isinstance(partial_preprocessor.func, type) and issubclass(partial_preprocessor.func, AbsPreprocessor))` is False for a factory function; 309-318 both train_preprocessor and valid_preprocessor come from `_instantiate_preprocessor_from_config(preprocessor_cfg, <flag>)` with the same preprocessor_cfg and no flag actually applied when is_espnet is False. Verified by execution: scratch check F -- 'train was_train: True | valid was_train: True'.",
+      "suggested_fix": "Also detect factory functions whose return annotation or a runtime probe indicates an AbsPreprocessor result (or require factory targets to accept/forward a `train` kwarg explicitly and always pass it), so train/valid get distinct train flags even when _target_ is a function rather than a class.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/mini_an4/asr/dataset/builder.py",
+      "lines": "159-161,237-242",
+      "category": "bug",
+      "severity": "high",
+      "summary": "MiniAn4Builder.is_built() only checks that manifest files exist, and MiniAn4Builder.build() writes them non-atomically (direct write, no temp file + rename), so concurrent constructions of the auto-building Dataset (DDP ranks, Dask/parallel workers) can race and observe a zero-byte, mid-line-truncated, or line-boundary-truncated manifest as \"already built\".",
+      "scenario": "egs3/mini_an4/asr/dataset/dataset.py:93-97 auto-builds inside the Dataset constructor (`if not builder.is_built(...): builder.build(...)`) with no locking. If two processes/ranks construct the dataset around the same time, one may observe `manifest.tsv` after `path.open(\"w\")` has created the file but before any rows are written -- `is_built()` (builder.py:159-161, `all((data/p).is_file() ...)`) returns True for that zero-byte file since it only checks existence -- and the reader in dataset.py's `_read_manifest` then raises `RuntimeError(\"Manifest is empty: ...\")`. A read mid-write can also land inside a line, causing `line.split(\"\\t\", maxsplit=2)` to unpack too few fields (ValueError), or exactly at a line boundary, silently yielding a shorter dataset with no error at all.",
+      "evidence": "builder.py:159-161 `return all((data / p).is_file() for p in _CFG[\"manifest_paths\"].values())` -- existence-only, no size/checksum/marker-file check; builder.py:237-242 `with path.open(\"w\", encoding=\"utf-8\") as fh: for utt_id, wav, text in entries: fh.write(...)` writes straight to the final manifest path with no atomic rename; egs3/mini_an4/asr/dataset/dataset.py:93-97 constructs/builds with no lock around the is_built/build pair. Verified by execution: scratch check M -- with a zero-byte train.tsv, `is_source_prepared: True | is_built: True` then `MiniAn4Dataset FAILED: RuntimeError Manifest is empty: ...`; a partial-line manifest gave `FAILED: ValueError not enough values to unpack (expected 3, got 2)`; a manifest truncated exactly at a line boundary gave `len: 1 (no error)`.",
+      "suggested_fix": "Write manifests to a temp file in the same directory and os.rename() into place atomically, and/or guard is_built()/build() with a file lock (or have only rank 0 build, with other ranks waiting on a barrier) so concurrent constructors never observe a partially written manifest.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "egs3/mini_an4/asr/dataset/dataset.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "271-276,316-353",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "In string-index (mixed) mode, sub-datasets that support integer indexing are never registered in _uid_to_dataset, so combined[\"<int-as-string>\"] raises ValueError even though the same lookup works when every sub-dataset is int-addressable; an empty sub-dataset alone is also enough to flip the whole CombinedDataset into string mode.",
+      "scenario": "Combine one int-addressable dataset with one dataset that only exposes string keys. _initialize_index_mode's registration loop (271-276) does `if self._dataset_supports_int[dataset_idx]: continue`, so the int-addressable dataset's numeric positions are never added to _uid_to_dataset. `combined[\"0\"]` then goes through `_resolve_string_mode_index` (316-353), which for a string idx only consults `_uid_to_dataset` (344-351) and raises `ValueError: Utterance ID '0' is not supported by the underlying datasets.` -- even though `combined[0]` (integer) works fine and, in a *pure* numeric-mode CombinedDataset, `combined[\"0\"]` also works (via the int(idx) coercion in __getitem__, line 186-192). This silently breaks any caller (e.g. ESPnet iter_factory, which batches by uid strings) that treats uids as interchangeable strings across mixed datasets. Separately, any single empty sub-dataset (len 0) makes `supports_integer_index` return... actually flips mode: since an empty dataset's `dataset[0]` raises IndexError -> supports_integer_index is False for it -> `all_integer_addressable` is False -> the whole CombinedDataset (all sub-datasets, including otherwise-int-addressable ones) is forced into string mode, and any of those other datasets that expose no string keys becomes unreachable by index.",
+      "evidence": "dataset.py:271-276 registration loop skips int-addressable datasets; dataset.py:344-351 string-idx lookup only checks _uid_to_dataset. Verified by execution: scratch check C -- 'string mode? True', `c[0] ok -> a0` but `c['0'] FAILED: ValueError Utterance ID '0' is not supported by the underlying datasets.`, while 'pure numeric c2['0'] -> a0' succeeds; check C2 -- an empty sub-dataset alone: 'string mode with an empty dataset? True', and the previously-int-addressable dataset's numeric-string lookup then also fails (`c3['1'] FAILED: ValueError ...`).",
+      "suggested_fix": "In mixed mode, also register a str(position)->()dataset_idx, position) mapping for int-addressable sub-datasets during _initialize_index_mode, so numeric-string uids keep working alongside real string uids; treat an empty sub-dataset as a non-signal for mode detection rather than forcing string mode.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "251-257",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "supports_integer_index() swallows every exception from dataset[0], not just IndexError, so a dataset whose first item is merely corrupt/unreadable is silently misclassified as a string-index dataset instead of surfacing the real error at construction time.",
+      "scenario": "A dataset that supports integer indexing but whose item 0 happens to be a corrupt file (e.g. a bad wav that raises a decoder error) is probed by `supports_integer_index` via a bare `except Exception: return False`. The dataset is then treated as string-index-only and CombinedDataset falls into `_collect_string_keys`, which for a plain indexable dataset with no `.keys()` tries `iter(dataset)` -- for a `__getitem__`-only Dataset, `iter()` falls back to repeatedly calling `__getitem__(0), __getitem__(1), ...` until IndexError, immediately re-triggering the *same* corrupt-item error, so the real exception does eventually surface, but only via a confusing detour through the string-mode machinery (TypeError about non-string keys, or the original error re-raised from an unrelated call site) rather than a clear failure at the point of the actual bad item.",
+      "evidence": "dataset.py:251-257 `def supports_integer_index(dataset):\\n            try:\\n                dataset[0]\\n            except Exception:\\n                return False\\n            else:\\n                return True`. Verified by execution: scratch check S -- a dataset whose item 0 raises RuntimeError (\"corrupt wav\") produces `FAILED: RuntimeError LibsndfileError: corrupt wav for item 0 | raised from: _collect_string_keys`, i.e. the error resurfaces later, misattributed to key-collection rather than the original read.",
+      "suggested_fix": "Catch a narrower set of exceptions (e.g. IndexError, KeyError, TypeError) that genuinely indicate \"not integer-addressable\", and let other exceptions from dataset[0] propagate immediately so the failure is attributed to the actual bad item.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "400-419",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "CombinedDataset.__repr__ references self.multiple_iterator, which is never assigned anywhere in the class, so repr(combined_dataset) always raises AttributeError.",
+      "scenario": "Any code path that logs or prints a CombinedDataset -- including DataOrganizer.log_summary/_log_dataset, which calls build_qualified_name(combined) and, for exceptions, standard %r logging -- can crash. Even a bare `repr(dataset)` in a debugger or an error message crashes instead of describing the dataset.",
+      "evidence": "dataset.py:416 `f\\\"multiple_iterator={self.multiple_iterator}, \\\"` inside __repr__ (400-419); no `self.multiple_iterator = ...` assignment exists anywhere in __init__ (82-165) or elsewhere in the class. Verified by execution: scratch check A -- 'REPR FAILED: AttributeError 'CombinedDataset' object has no attribute 'multiple_iterator''.",
+      "suggested_fix": "Remove the multiple_iterator field from __repr__ (it appears to be leftover from an earlier design), or add and maintain the corresponding attribute if it is meant to reflect ESPnet's multiple-iterator mode.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/data_organizer.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "181-217",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "In numeric mode, a negative integer index is not range-checked and falls through to Python's negative-indexing semantics on only the *first* sub-dataset, silently returning the wrong item with a misleading uid, inconsistent with string mode (which explicitly raises IndexError for negative indices).",
+      "scenario": "`combined[-1]` on a CombinedDataset with sub-datasets of length 2 and 2 (total 4): the loop `for i, cum_len in enumerate(self.cumulative_lengths): if idx < cum_len` matches i=0 immediately since -1 < 2, so `ds_idx = idx = -1`, and `self.datasets[0][-1]` returns dataset 0's *last* element (Python negative-index semantics) instead of raising IndexError or returning the combined dataset's actual last element (which lives in dataset 1). The returned uid is `str(idx)` = \"-1\", which does not correspond to any real utterance. Compare `_resolve_string_mode_index` (316-319), which explicitly raises `IndexError(\"Index out of range in CombinedDataset\")` for any negative int -- so behavior differs by mode for the same misuse.",
+      "evidence": "dataset.py:194-196 `for i, cum_len in enumerate(self.cumulative_lengths): if idx < cum_len: ds_idx = idx if i == 0 else ...` has no `idx < 0` guard. Verified by execution: scratch check B -- 'len 4 c[-1] -> a1 (python semantics would give b1)', i.e. c[-1] silently returned dataset 0's tail item instead of the true last item or an error; 'c[-1] with collator -> -1 a1' shows the bogus uid \"-1\" attached to that wrong item.",
+      "suggested_fix": "Reject negative indices in __getitem__ (raise IndexError) the same way _resolve_string_mode_index already does, for consistency between the two modes.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "94-116",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "_load_local_dataset_module loads recipe_dir/dataset/__init__.py via a synthetic module name every time (used whenever a dataset entry omits data_src), so the resulting Dataset class's __module__ is not a real importable path and instances are unpicklable in a fresh interpreter -- unlike the tag-reference path (data_src set) which imports the real egs3.<recipe>.<task>.dataset package.",
+      "scenario": "mini_an4's own recipe config omits data_src (local mode) for its dataset entries, so every DataOrganizer construction loads dataset/__init__.py through `util.spec_from_file_location` with `module_name = f\"_espnet3_local_dataset_{sanitized}\"`. `MiniAn4Dataset.__module__` ends up as that synthetic name (e.g. `_espnet3_local_dataset_..._py.dataset`), not `egs3.mini_an4.asr.dataset.dataset`. Any DataLoader configuration that spawns worker processes (num_workers>0 with the default/spawn start method, ddp_spawn strategy, or macOS where fork is unavailable) needs to pickle the dataset (or samples produced holding references to it) into the worker; unpickling in the fresh worker interpreter fails because `_espnet3_local_dataset_...` was never registered as a real package there. librispeech_100's dataset/__init__.py instead uses absolute imports (`from egs3.librispeech_100.asr.dataset.dataset import ...`), which resolve through the real `egs3` package rather than the synthetic loader's relative-import machinery, so its Dataset class stays picklable -- an inconsistency between the two example recipes that a new recipe author has no way to know about.",
+      "evidence": "dataset_module.py:102-116 constructs a fresh `module_name` per call and `exec_module`s it; egs3/mini_an4/asr/dataset/__init__.py:3-4 uses relative imports (`from .builder import ...`, `from .dataset import ...`) vs egs3/librispeech_100/asr/dataset/__init__.py:3-6 using absolute imports. Verified by execution: scratch check G -- `Dataset.__module__: _espnet3_local_dataset_..._py.dataset`, `local Dataset is egs3 package Dataset? False`, `fresh-interpreter unpickle: ModuleNotFoundError: No module named '_espnet3_local_dataset_...'`, while `librispeech Dataset.__module__: egs3.librispeech_100.asr.dataset.dataset` (a real, picklable path).",
+      "suggested_fix": "Prefer absolute imports inside recipe dataset/__init__.py files as documented convention (as librispeech already does), or change _load_local_dataset_module to import the real egs3.<recipe>.<task>.dataset package by path instead of a synthetic name so local and tag-referenced loading produce the same, picklable module identity.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/mini_an4/asr/dataset/__init__.py",
+        "egs3/librispeech_100/asr/dataset/__init__.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "319-331",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "When preprocessor is passed as an already-instantiated AbsPreprocessor, DataOrganizer reuses that same instance (not a copy) for valid and test and mutates its .train attribute in place, which both surprises the caller (whose object's state changes as a side effect of building the organizer) and does not rebuild train-dependent state baked in at the preprocessor's own construction time.",
+      "scenario": "A caller builds `pp = MiniAn4TokenizeSpeedPerturbPreprocessor(train=True, speed_perturb_prob=0.1, speed_perturb_factors=[0.95, 1.05], ...)` and passes it directly as `DataOrganizer(preprocessor=pp, ...)`. Because MiniAn4TokenizeSpeedPerturbPreprocessor.__init__ (egs3/mini_an4/asr/src/preprocessor.py:26-44) computes `data_aug_effects`/`data_aug_prob` from `train` *once* and bakes them into an inner `self._delegate = CommonPreprocessor(...)`, later setting `valid_preprocessor.train = False` (data_organizer.py:326, on the caller's own `pp` object) changes the outer `.train` flag but leaves `_delegate`'s already-built speed-perturb augmentation config untouched -- so calling the \"valid\" preprocessor still applies training-time speed perturbation. Separately, the caller's own `pp` object is left with `.train == False` after DataOrganizer construction even though the caller may still be holding a reference to it expecting `.train == True` (e.g. for reuse elsewhere), which is a surprising, hard-to-diagnose side effect.",
+      "evidence": "data_organizer.py:319-331 `elif isinstance(preprocessor_cfg, AbsPreprocessor): ... valid_preprocessor = preprocessor_cfg; valid_preprocessor.train = False ... test_preprocessor = preprocessor_cfg; test_preprocessor.train = False` -- no deepcopy for valid/test, and only .train is flipped. egs3/mini_an4/asr/src/preprocessor.py:26-44 shows train-dependent state (`data_aug_effects`, `data_aug_prob`) computed once in __init__ from the `train` argument and stored in `self._delegate`, which is never rebuilt when `.train` is later reassigned. Verified by execution: scratch check P -- \"caller's pp.train after DataOrganizer: False\" confirms the caller's original object was mutated.",
+      "suggested_fix": "Deepcopy preprocessor_cfg for valid_preprocessor and test_preprocessor as is already done for train_preprocessor, so the caller's original instance is never mutated; document that AbsPreprocessor subclasses with train-dependent internal state built in __init__ (like the delegate pattern here) are not safe to reuse this way, or have DataOrganizer re-instantiate rather than mutate.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/mini_an4/asr/src/preprocessor.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "279-296",
+      "category": "design",
+      "severity": "medium",
+      "summary": "A split preprocessor config that omits 'train' silently leaves the train split with no preprocessor at all (do_nothing) while valid/test still get a real preprocessor -- the code only logs a warning, and the resulting mismatched (untokenized train vs tokenized valid) configuration is never rejected.",
+      "scenario": "A user writes `preprocessor: {valid: {_target_: ..., ...}, token_type: bpe, ...}` and forgets a `train:` block (e.g. a copy-paste edit that keeps valid but drops train). `train_cfg` stays None (279-283 only warns), so `train_preprocessor = self._instantiate_preprocessor_from_config(None, True)` returns `do_nothing` (410-411) -- the training dataset is never tokenized/preprocessed at all, while valid (and test, via the valid fallback) *is* tokenized. Training then either crashes deep inside the model on raw text/audio-shape mismatches, or silently trains on unprocessed samples, with only a log line (easy to miss in a long stdout) indicating why.",
+      "evidence": "data_organizer.py:279-283 `if train_cfg is None: logger.warning(\"Split preprocessor config is missing 'train'. The train split will not use a preprocessor.\")` -- warning only, no exception; data_organizer.py:410-411 `if preprocessor_cfg is None: return do_nothing`. Verified by execution: scratch check Q -- 'train sample keys: ['speech', 'text'] | valid sample keys: ['speech', 'text', 'token_list', 'was_train']' and 'train use_espnet_preprocessor: False | valid: True', confirming train is silently left untokenized while valid is not.",
+      "suggested_fix": "Raise instead of warn when a split config defines valid/test but omits train (or vice versa for the documented fallback chain), since a downstream shape/type crash or silent under-preprocessing is a much worse failure mode than an upfront config error.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "184-187,207",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "parse_dataset_reference_config's docstring documents ValueError for an incompatible data_src_args, but `data_src_args: null` (a real, easy-to-write YAML value) actually raises TypeError; the one existing test named for this case asserts ValueError but exercises a different (string) input, leaving the documented/None case untested.",
+      "scenario": "A recipe author writes `data_src_args:` with no value (YAML null) intending \"no extra args\", expecting the documented default-empty-dict behavior. `plain.get(_DATA_SRC_ARGS_KEY, {})` at line 207 returns the *actual* value None (since the key is present), so `dict(None)` raises `TypeError: 'NoneType' object is not iterable` -- not the ValueError the docstring promises (lines 184-187 'Raises: ... ValueError: If data_src_args is incompatible with dict(...)'). test_dataset_module.py's `test_instantiate_dataset_reference_invalid_kwargs_raises_type_error` (despite its name) passes `{\"data_src_args\": \"not-a-mapping\"}` (a string) and asserts `pytest.raises(ValueError)` -- `dict(\"not-a-mapping\")` does raise ValueError, so that test passes, but it neither tests the TypeError its own name implies nor the null/None case that actually produces one.",
+      "evidence": "dataset_module.py:207 `data_src_args = dict(plain.get(_DATA_SRC_ARGS_KEY, {}))`; dataset_module.py:184-187 docstring says `ValueError: If data_src_args is incompatible with dict(...)`. Verified by execution: scratch check H -- `data_src_args: null` gives `FAILED: TypeError 'NoneType' object is not iterable`; test/espnet3/utils/test_dataset_module.py:249-257 test named `..._raises_type_error` does `with pytest.raises(ValueError): dm.instantiate_dataset_reference({\"data_src_args\": \"not-a-mapping\"}, ...)`.",
+      "suggested_fix": "Treat an explicit null the same as an omitted key (`plain.get(_DATA_SRC_ARGS_KEY) or {}`), update the docstring to mention TypeError as well as ValueError depending on the bad value's type, and rename/extend the existing test to cover the null case explicitly.",
+      "confidence": 0.85,
+      "test_name": "test_instantiate_dataset_reference_invalid_kwargs_raises_type_error",
+      "related_files": [
+        "test/espnet3/utils/test_dataset_module.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "23-69,246-249",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "DatasetConfig is advertised in DataOrganizer's own type hints and docstring examples as an accepted per-entry config type, but passing an actual DatasetConfig instance crashes with TypeError deep inside dataset_module.py, and the DataOrganizer.__init__ preprocessor type hint (Callable[[dict], dict]) does not match the documented (uid, sample) calling convention.",
+      "scenario": "A user follows the DatasetConfig docstring example (data_organizer.py:42-54) and passes `train=[DatasetConfig(name=\"custom\", data_src=\"mini_an4/asr\", data_src_args={...})]` to DataOrganizer, matching the declared type `Optional[List[Union[DatasetConfig, Dict[str, Any], DictConfig]]]` (line 246). `_build_dataset_list` treats non-DictConfig entries as already-dict-like (`raw_config = config`) and calls `instantiate_dataset_reference(raw_config, ...)`, which calls `parse_dataset_reference_config` -> `_to_plain_dict` -> `dict(config)` on the DatasetConfig dataclass instance, raising TypeError because a dataclass instance is not iterable as key/value pairs. Separately, the `preprocessor: Optional[Callable[[dict], dict]] = None` hint at line 249 describes a single-argument callable, but the documented/implemented AbsPreprocessor convention calls `preprocessor(uid, sample)` (two positional args) whenever use_espnet_preprocessor is True -- the type hint does not describe the actual calling contract.",
+      "evidence": "data_organizer.py:23-69 defines DatasetConfig as a dataclass and documents it as directly usable; data_organizer.py:246,249 declare the Union/Callable hints; dataset_module.py:31-36 `_to_plain_dict`: `return dict(config)` for a non-DictConfig input. Verified by execution: scratch check K -- `DatasetConfig instance ... FAILED: TypeError 'DatasetConfig' object is not iterable`.",
+      "suggested_fix": "Either make DatasetConfig actually usable (convert it via dataclasses.asdict() before treating a config entry as a mapping) or remove it and the misleading docstring examples/type hints entirely if it is meant to be replaced by plain dict/DictConfig entries; fix the preprocessor type hint to reflect the real (uid, sample) vs (sample) dual calling convention.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/dataset_module.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "egs3/librispeech_100/asr/dataset/dataset.py",
+      "lines": "90-94,134-140",
+      "category": "docs-mismatch",
+      "severity": "medium",
+      "summary": "LibriSpeech100Dataset's class docstring documents that dataset[0] returns a sample with an 'utt_id' key, but __getitem__ only ever returns 'speech' and 'text' -- utt_id is silently absent, and a downstream helper relies on the documented-but-missing key.",
+      "scenario": "Anyone relying on the docstring (`>>> sorted(sample.keys())` -> `['speech', 'text', 'utt_id']`) to identify the current utterance, e.g. for logging or output keying, gets a KeyError, or (as in this recipe's own src/inference.py) silently falls back to a positional index instead. `egs3/librispeech_100/asr/src/inference.py:6` does `utt_id = data.get(\"utt_id\", str(idx))`, so with the real dataset every inference output is keyed by the numeric dataloader index rather than the true LibriSpeech utterance id, making SCP files (hyp/ref keyed by 'utt_id') impossible to align with the original corpus IDs and fragile under any reordering (e.g. shuffled DataLoader, sharding, or DDP) since the index no longer corresponds to a stable utterance identity.",
+      "evidence": "egs3/librispeech_100/asr/dataset/dataset.py:90-94 docstring example claims `['speech', 'text', 'utt_id']`; dataset.py:134-140 `__getitem__` returns only `{\"speech\": ..., \"text\": ...}`; egs3/librispeech_100/asr/src/inference.py:6 `utt_id = data.get(\"utt_id\", str(idx))` falls back to str(idx).",
+      "suggested_fix": "Either add 'utt_id': example.utt_id to the returned sample dict (matching the docstring and the mini_an4 recipe convention) or fix the docstring to match actual behavior and make src/inference.py fail loudly instead of silently keying by index.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "egs3/librispeech_100/asr/src/inference.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/mini_an4/asr/dataset/builder.py",
+      "lines": "213-224",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "build() checks `if not wav.exists()` before invoking sph2pipe, but the wav file is created (via `wav.open(\"wb\")`) before the subprocess runs into it, so an interrupted/killed sph2pipe run leaves a zero-byte or partial wav that a subsequent build() call will treat as already converted and skip re-conversion.",
+      "scenario": "build() is interrupted (OOM kill, SIGTERM, disk full, or a race with another concurrent build() call per finding #4) partway through converting one utterance's .sph to .wav. The partially-written wav file already exists on disk. On the next run, `if not wav.exists()` (line 218) is False for that file, so sph2pipe is never re-invoked; the corrupt/truncated wav is written into the manifest as-is and later fails (or silently mis-decodes) when read by soundfile in MiniAn4Dataset.__getitem__.",
+      "evidence": "builder.py:216-224 `wav = (data / \"wav\" / split / f\"{utt_id}.wav\").resolve()\\n                wav.parent.mkdir(parents=True, exist_ok=True)\\n                if not wav.exists():\\n                    with wav.open(\"wb\") as fh:\\n                        subprocess.run([sph2pipe, ...], stdout=fh, check=True)` -- the file is created by open(\"wb\") immediately, before conversion completes, so existence alone is not a valid \"conversion succeeded\" signal. (analytic: not exercised via a scratch script, reasoned from the code structure and the confirmed non-atomic-write pattern already verified for manifests in finding #4.)",
+      "suggested_fix": "Write to a temporary path and rename to the final .wav path only after subprocess.run succeeds (matching the fix suggested for the manifest-writing race in finding #4), so a half-converted file is never mistaken for a finished one.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "egs3/mini_an4/asr/dataset/dataset.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/librispeech_100/asr/dataset/dataset.py",
+      "lines": "53-58",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "_scan_split silently skips any transcript line with no words after the utt_id or whose corresponding .flac file is missing, so a corpus with a few bad/missing files produces a silently smaller split instead of surfacing the problem.",
+      "scenario": "If the LibriSpeech download/extraction is incomplete (a handful of missing .flac files) or a transcript line is malformed (empty transcript after the utt_id), `_scan_split` just `continue`s past that line (54-55, 57-58) without logging or counting skips. The dataset ends up with fewer examples than the true corpus, with no signal to the user beyond a smaller-than-expected `len(dataset)` -- easy to miss, and indistinguishable from a correctly-smaller subset/debug split.",
+      "evidence": "egs3/librispeech_100/asr/dataset/dataset.py:53-58 `utt_id, *words = line.split()\\n                    if not words:\\n                        continue\\n                    audio_path = root_path / f\\\"{utt_id}.flac\\\"\\n                    if not audio_path.is_file():\\n                        continue` -- no logging/counting of skipped entries.",
+      "suggested_fix": "Log a warning (with a count) for skipped lines/missing audio at the end of _scan_split, or raise if the skip rate exceeds a small threshold, so silent corpus truncation is visible.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "392-394",
+      "category": "bug",
+      "severity": "low",
+      "summary": "Test dataset entries with neither an explicit 'name' nor a 'data_src' all collapse to the same key (\"local\"), so multiple unnamed local test sets silently overwrite each other in self.test_sets and only the last one survives.",
+      "scenario": "A recipe defines `test: [{data_src_args: {split: a}}, {data_src_args: {split: b}}]` (two local test datasets, neither with a `name` or `data_src`). `name = raw_config.get(\"name\") or str(raw_config.get(\"data_src\") or \"local\")` evaluates to \"local\" for both entries, so `self.test_sets[\"local\"] = ...` is assigned twice and the first test dataset is silently dropped -- `organizer.test` ends up with only one entry (\"local\") instead of two, and downstream metric/measure stages silently evaluate only the second split under a generic \"local\" name.",
+      "evidence": "data_organizer.py:392-394 `name = raw_config.get(\"name\") or str(raw_config.get(\"data_src\") or \"local\")`; the dict assignment at line 395 `self.test_sets[name] = DatasetWithTransform(...)` is a plain overwrite with no duplicate-key check. Verified by execution: scratch check R -- two unnamed test entries produced `test keys: ['fakepp']` (a single collapsed key), not two.",
+      "suggested_fix": "Require an explicit 'name' for any test entry lacking data_src (raise a clear error instead of collapsing to \"local\"), or auto-disambiguate by appending an index when multiple entries would collide.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/data/dataset_module.py",
+      "lines": "51-72,162-168",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "resolve_dataset_module_name/load_dataset_module produce confusing module-not-found errors for common typos: an unknown recipe tag surfaces a raw 'No module named ...' with no hint that it came from a data_src typo, and a trailing slash in the tag produces a malformed module path with an empty segment.",
+      "scenario": "A recipe config has `data_src: mini_an4/asr/` (trailing slash, easy typo) or `data_src: nosuchrecipe/asr`. resolve_dataset_module_name splits on \"/\" and rejoins with \".\", so a trailing slash produces a module path with a dangling empty segment (e.g. \"egs3.mini_an4.asr..dataset\"), and import_module raises a generic ModuleNotFoundError that does not mention data_src, the recipe tag, or that ESPnet3 resolved it via the tag convention -- a user has to know the internal `egs3.<recipe>.<task>.dataset` convention to connect the error back to their YAML typo.",
+      "evidence": "dataset_module.py:51-72 `resolve_dataset_module_name` does `\".\".join(part.replace(\"-\", \"_\") for part in ref.split(\"/\"))` with no validation that ref has no empty segments; dataset_module.py:162-168 `if _is_tag(data_src): return import_module(resolve_dataset_module_name(data_src))` lets import_module's raw error surface unmodified.",
+      "suggested_fix": "Validate that a tag-form data_src has no empty path segments and raise a clear error naming the offending data_src value; wrap import_module's ModuleNotFoundError to mention the original data_src and the resolved module path it produced.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml",
+      "lines": "41-49",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "The shipped librispeech e_branchformer tuning config sets `train: true` explicitly inside a shared (non-split) preprocessor block, which DataOrganizer always overrides -- so this recipe emits the 'will be ignored' warning on every single DataOrganizer construction (every pipeline stage).",
+      "scenario": "training_e_branchformer.yaml:37-49 defines one shared `preprocessor: {_target_: ...CommonPreprocessor, train: true, ...}` (no per-split train/valid/test sub-blocks). `_instantiate_preprocessor_from_config` detects `\"train\" in preprocessor_cfg` (data_organizer.py:419-425) and logs a warning every time this config is loaded -- i.e. at every stage of `run.py` (create_dataset, train_tokenizer, collect_stats, train, ...), cluttering logs with a warning about a value that was harmless but is not actually needed since DataOrganizer always sets train itself.",
+      "evidence": "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml:44 `train: true` inside the shared preprocessor block; data_organizer.py:418-425 `if is_espnet: if \"train\" in preprocessor_cfg: logger.warning(...)`.",
+      "suggested_fix": "Remove the redundant `train: true` line from the shipped tuning config (it is silently ignored anyway), so the example recipe does not itself trigger the warning it is meant to catch in user configs.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/data/data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/TEMPLATE/tts/conf/training.yaml",
+      "lines": "35-36",
+      "category": "design",
+      "severity": "low",
+      "summary": "The TTS TEMPLATE leaves `dataset:` empty in all three conf files (training/inference/metrics) instead of demonstrating the `_target_: .../DataOrganizer` + `_recursive_: false` pattern the ASR TEMPLATE uses, so a TTS recipe author who fills it in without also adding `_recursive_: false` will have Hydra eagerly pre-instantiate the nested preprocessor/transform configs, silently routing preprocessor construction through the AbsPreprocessor-instance code path (finding #10) instead of DataOrganizer's own dict-config handling.",
+      "scenario": "A new TTS recipe copies `dataset: {_target_: espnet3.components.data.data_organizer.DataOrganizer, recipe_dir: ..., train: [...], valid: [...], preprocessor: {_target_: ..., train: {...}, valid: {...}}}` but, unlike the ASR TEMPLATE (conf/training.yaml:100-107), does not know to add `_recursive_: false` since the TTS TEMPLATE never shows it. Without that flag, Hydra's default recursive instantiation builds the nested `preprocessor` sub-config into a real object *before* calling `DataOrganizer.__init__`, so DataOrganizer receives an already-instantiated AbsPreprocessor rather than a dict/DictConfig -- taking the instance path (data_organizer.py:319-331) with its caller-mutation and stale-train-dependent-state issues (finding #10) instead of the intended split-preprocessor dict path (which correctly sets a fresh train flag per split at instantiation time).",
+      "evidence": "egs3/TEMPLATE/asr/conf/training.yaml:100-101 `_target_: espnet3.components.data.data_organizer.DataOrganizer` immediately followed by `_recursive_: false`, load-bearing for the split-preprocessor mechanism; egs3/TEMPLATE/tts/conf/training.yaml:35-36, inference.yaml:15-16, and metrics.yaml:13-14 all leave `dataset:` as a bare empty key with no _target_/_recursive_ example to copy from.",
+      "suggested_fix": "Add a commented-out (or minimal working) dataset: block to the TTS TEMPLATE showing _target_: DataOrganizer with _recursive_: false, matching the ASR TEMPLATE, so TTS recipe authors don't have to discover this Hydra footgun independently.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "egs3/TEMPLATE/tts/conf/inference.yaml",
+        "egs3/TEMPLATE/tts/conf/metrics.yaml"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "296-307",
+      "category": "design",
+      "severity": "low",
+      "summary": "The split-preprocessor path always instantiates train_preprocessor even when DataOrganizer is being used inference-only (train=None), wasting work and, if the train-split preprocessor config is malformed or references training-only resources, causing an inference-only construction to fail for reasons unrelated to inference.",
+      "scenario": "An inference-only DataOrganizer(train=None, test=test_configs, preprocessor=<split config with train/valid/test blocks>) still executes `train_preprocessor = self._instantiate_preprocessor_from_config(train_cfg, True)` (299-301) unconditionally, even though `self.train` stays None (345 `if train is not None: ...` is skipped) and train_preprocessor is never used for anything except being stored at `self.preprocessor` (line 340). If train_cfg's _target_ needs resources only available during training (e.g. a tokenizer artifact not yet built at inference time), constructing an inference-only DataOrganizer fails even though train data was never requested.",
+      "evidence": "data_organizer.py:296-307 unconditionally builds train_preprocessor/valid_preprocessor/test_preprocessor from the split config regardless of whether `train` (the dataset list argument) is None; line 345 `if train is not None: self.train = self._build_dataset_list(train, train_preprocessor)` is the only consumer of train_preprocessor besides self.preprocessor.",
+      "suggested_fix": "Skip instantiating train_preprocessor when the `train` argument is None (mirroring the `if train is not None` guard already used for building self.train), instantiating it lazily or only when actually needed.",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "371-398",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test exercises CombinedDataset.shard() together with use_espnet_collator=True, so the collator-flag-reset bug (finding #1) has no regression coverage.",
+      "scenario": "test_combined_dataset_shard_returns_sharded_dataset (test/espnet3/components/data/test_data_organizer.py:929-940) builds sharded datasets and checks len()/sample content, but never sets use_espnet_collator on the pre-shard CombinedDataset nor asserts anything about the flag on the result -- the exact interaction that finding #1 shows is broken is untested.",
+      "evidence": "test_combined_dataset_shard_returns_sharded_dataset (test/espnet3/components/data/test_data_organizer.py:929-940) builds sharded datasets and checks len()/sample content, but never sets use_espnet_collator on the pre-shard CombinedDataset nor asserts anything about the flag on the result -- the exact interaction that finding #1 shows is broken is untested.",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": "test_combined_dataset_shard_returns_sharded_dataset",
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "271-353",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test covers combined[\"<int-as-string>\"] lookups in mixed (string-index) mode for a sub-dataset that is itself integer-addressable, so finding #5's ValueError-on-numeric-string-uid bug has no coverage.",
+      "scenario": "test_data_organizer.py's string-mode tests (e.g. around lines 300-350) only exercise combined[\"utt0\"]-style genuine string uids against string-only datasets; no test mixes an int-addressable dataset with a string-only one and then looks it up via combined[str(numeric_position)].",
+      "evidence": "test_data_organizer.py's string-mode tests (e.g. around lines 300-350) only exercise combined[\"utt0\"]-style genuine string uids against string-only datasets; no test mixes an int-addressable dataset with a string-only one and then looks it up via combined[str(numeric_position)].",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "181-217",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test covers negative integer indices into CombinedDataset in numeric mode, so finding #8's silent wrong-item-returned behavior has no coverage.",
+      "scenario": "grep over test_data_organizer.py found no test using a negative index (e.g. combined[-1]) against CombinedDataset in either mode.",
+      "evidence": "grep over test_data_organizer.py found no test using a negative index (e.g. combined[-1]) against CombinedDataset in either mode.",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/dataset.py",
+      "lines": "400-419",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test calls repr() on a CombinedDataset instance, so finding #7's AttributeError-on-repr bug has no coverage and could regress silently forever.",
+      "scenario": "grep over test_data_organizer.py found no repr(...) call against CombinedDataset (or DataOrganizer, which also formats a description via build_qualified_name that would surface this).",
+      "evidence": "grep over test_data_organizer.py found no repr(...) call against CombinedDataset (or DataOrganizer, which also formats a description via build_qualified_name that would surface this).",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "308-318,404-427",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test uses a factory-*function* _target_ (as opposed to a class deriving from AbsPreprocessor) for DataOrganizer's shared preprocessor config, so finding #3's train/valid-both-True bug has no coverage.",
+      "scenario": "grep over test_data_organizer.py for factory-style _target_ preprocessor configs found none; all preprocessor-config tests target AbsPreprocessor subclasses directly.",
+      "evidence": "grep over test_data_organizer.py for factory-style _target_ preprocessor configs found none; all preprocessor-config tests target AbsPreprocessor subclasses directly.",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/data/data_organizer.py",
+      "lines": "23-69",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test constructs a DataOrganizer with an actual DatasetConfig dataclass instance (as opposed to a plain dict/DictConfig), so finding #13's TypeError-on-DatasetConfig-usage has no coverage despite DatasetConfig being part of the documented, type-hinted public API.",
+      "scenario": "grep over test_data_organizer.py, test_dataset_module.py, and egs3/ for DatasetConfig usage found no matches outside data_organizer.py itself.",
+      "evidence": "grep over test_data_organizer.py, test_dataset_module.py, and egs3/ for DatasetConfig usage found no matches outside data_organizer.py itself.",
+      "suggested_fix": "Add a regression test for this specific interaction.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/data/test_data_organizer.py"
+      ],
+      "verified_by_execution": false
+    }
+  ]
+}

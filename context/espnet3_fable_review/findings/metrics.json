@@ -1,0 +1,342 @@
+{
+ "area": "metrics",
+ "coverage": {
+  "files_fully_read": [
+   "espnet3/systems/base/metric.py",
+   "espnet3/components/metrics/base_metric.py",
+   "espnet3/systems/asr/metrics/cer.py",
+   "espnet3/systems/asr/metrics/ter.py",
+   "espnet3/systems/asr/metrics/wer.py",
+   "egs3/TEMPLATE/asr/conf/metrics.yaml",
+   "egs3/mini_an4/asr/conf/metrics.yaml",
+   "egs3/librispeech_100/asr/conf/metrics.yaml",
+   "egs3/TEMPLATE/tts/conf/metrics.yaml",
+   "espnet3/utils/scp_utils.py",
+   "espnet3/systems/base/system.py",
+   "espnet3/utils/run_utils.py",
+   "egs3/TEMPLATE/asr/run.py",
+   "espnet3/systems/base/inference.py",
+   "espnet3/systems/base/inference_runner.py",
+   "espnet3/utils/stages_utils.py",
+   "egs3/TEMPLATE/asr/conf/inference.yaml",
+   "egs3/mini_an4/asr/conf/inference.yaml",
+   "test/espnet3/systems/base/test_metric.py",
+   "test/espnet3/components/metrics/test_base_metric.py",
+   "test/espnet3/systems/asr/metrics/test_metrics.py"
+  ],
+  "files_skimmed": [
+   "espnet3/utils/config_utils.py (load_and_merge_config / _ensure_target_convert_all)",
+   "espnet3/utils/logging_utils.py (set_stage_log_handler, log_component)",
+   "espnet3/utils/publication_utils.py (metrics.json consumer: _resolve_results/_build_results_table)",
+   "espnet3/parallel/base_runner.py (concatenate_shard_files, env plumbing)",
+   "espnet3/systems/base/inference_provider.py (build_env_local)",
+   "espnet2/text/cleaner.py",
+   "espnet2/text/sentencepiece_tokenizer.py",
+   "egs3/TEMPLATE/asr/conf/training.yaml (path keys, tokenizer)",
+   "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml (tokenizer save_path)",
+   "egs3/TEMPLATE/asr/readme.md",
+   "egs3/librispeech_100/asr/readme.md",
+   "egs3/mini_an4/asr/src/inference.py",
+   "pyproject.toml (asr extra)"
+  ],
+  "files_not_read": [
+   "espnet3/systems/asr/system.py (beyond tokenizer grep)",
+   "espnet3/systems/tts/system.py (beyond metrics grep)",
+   "egs3/TEMPLATE/tts/conf/inference.yaml (grep only)",
+   "espnet2 scoring scripts (egs2/TEMPLATE/asr1/asr.sh) -- relied on prior knowledge of stage-13 char/bpe re-tokenization"
+  ],
+  "tests_inspected": [
+   "test/espnet3/systems/base/test_metric.py",
+   "test/espnet3/components/metrics/test_base_metric.py",
+   "test/espnet3/systems/asr/metrics/test_metrics.py",
+   "test/espnet3/systems/base/test_base_system.py (measure part, grep)",
+   "test/espnet3/utils/test_run_utils.py (metrics propagation part, grep)"
+  ],
+  "notes": "jiwer is NOT installed in the project's pixi env (the repo's own pytest run skips 3 jiwer tests), so I staged jiwer 4.0.0 (latest; pyproject pins no version) under SCRATCH/pylib and ran all verification with PYTHONPATH=REPO:SCRATCH/pylib from SCRATCH. The three metric test files pass against jiwer 4.0.0 (30 passed, 3 PytestUnknownMarkWarning). I could not compare against jiwer 3.x behaviour (e.g. whether wer([],[]) raised there), so the zero-utterance finding is stated for jiwer 4.0.0. I did not run a real infer stage (needs a trained model); the agreement between what inference writes (`${inference_dir}/<test_name>/<field>.scp`, same record order for all fields in InferenceRunner.write_record/merge) and what measure reads was established by code reading plus a synthetic end-to-end run of measure() over the real merged TEMPLATE+mini_an4 metrics.yaml. Checked and found OK (not reported): edit distance ref='a b c' hyp='a c' -> 33.33; CER counts spaces (matches espnet2 char-level scoring); TER re-tokenizes both ref and hyp like espnet2 stage 13; stage logs are files (infer.log/measure.log) inside inference_dir so they do not pollute the directory scan; `_convert_: all` injection makes `clean_types: null` instantiate cleanly through Hydra; the 'pip install espnet[asr]' hint matches pyproject's asr extra which lists jiwer; iter_inputs closes files in finally. Not reported as findings but worth knowing: jiwer's cer_default lacks RemoveMultipleSpaces so CER counts consecutive spaces as errors (ref 'a  b' vs hyp 'a b' -> 25%) while WER collapses them; this is an upstream default. Notes file written to review_log/findings/phase1_metrics.md; progress line appended."
+ },
+ "assumptions": [
+  "The recipe readmes and the 'Common usage'/'Quick usage' comments at the top of each metrics.yaml are meant to be runnable as written (they are the only user-facing documentation of the measure stage).",
+  "jiwer 4.0.0 is representative of what users get, because pyproject.toml declares 'jiwer' with no version pin in the asr extra.",
+  "Custom third-party BaseMetric subclasses are an intended extension point (base_metric.py's docstring documents adding extra `inputs` and CLI-backed metrics), so misuse paths through that API are treated as realistic rather than purely hypothetical.",
+  "espnet2 stage-13 scoring (char-level CER with <space> tokens, BPE-level TER by re-tokenizing both sides) is the intended reference behaviour, as ter.py's docstring states."
+ ],
+ "findings": [
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "24, 102-108",
+   "category": "bug",
+   "severity": "high",
+   "summary": "The documented scoring invocation (--training_config + --metrics_config, no --inference_config) crashes with omegaconf 'Missing key inference_dir' because nothing ever supplies metrics_config.inference_dir on that path.",
+   "scenario": "Run exactly what egs3/librispeech_100/asr/readme.md lines 20-22 and egs3/mini_an4/asr/conf/metrics.yaml lines 4-7 prescribe: `python run.py --stages measure --training_config conf/training_asr_transformer.yaml --metrics_config conf/metrics.yaml`. run.py merges TEMPLATE metrics.yaml (keys: recipe_dir, exp_tag, exp_dir, metrics) with the recipe file; apply_training_experiment_context copies only exp_tag/exp_dir from training (run_utils.py:361-369) and inference_dir only from an inference_config (run_utils.py:389-397, absent here); validate_experiment_context passes because it only checks exp_tag/exp_dir (run_utils.py:516-521), which measure() never uses. measure() then evaluates `Path(metrics_config.inference_dir)` at line 24 and raises `omegaconf.errors.ConfigAttributeError: Missing key inference_dir` after the system is already constructed and stage logging started. Verified by simulating run.py's config pipeline from SCRATCH (SCRATCH/e2e/sim_run.py): `'inference_dir' in metrics_config: False`, `_resolve_test_sets raised: ConfigAttributeError | Missing key inference_dir`.",
+   "evidence": "metric.py:24 `inference_dir = Path(metrics_config.inference_dir)`; run_utils.py:20-24 `_INFERENCE_METRICS_CONTEXT_KEYS = (\"exp_tag\",\"exp_dir\",\"inference_dir\")` only applied when `inference_config is not None and metrics_config is not None` (run_utils.py:389); run_utils.py:516-521 validates only `_has_exp_identity(metrics_config)`; egs3/TEMPLATE/asr/conf/metrics.yaml:16-28 defines no inference_dir; egs3/librispeech_100/asr/readme.md:20-22 and egs3/mini_an4/asr/conf/metrics.yaml:4-7 / egs3/librispeech_100/asr/conf/metrics.yaml:4-7 document the crashing invocation. The metrics.yaml comment itself (mini_an4 lines 21-23) contradicts its own 'Common usage' by saying inference_dir must be added unless --inference_config is given.",
+   "confidence": 0.95,
+   "related_files": [
+    "espnet3/utils/run_utils.py",
+    "egs3/TEMPLATE/asr/run.py",
+    "egs3/mini_an4/asr/conf/metrics.yaml",
+    "egs3/librispeech_100/asr/conf/metrics.yaml",
+    "egs3/librispeech_100/asr/readme.md",
+    "egs3/TEMPLATE/asr/conf/metrics.yaml"
+   ],
+   "suggested_fix": "Either give metrics.yaml a default `inference_dir: ${exp_dir}/inference` (matching inference.yaml's `${exp_dir}/${self_name:}` convention, or propagate it from training_config), or make validate_experiment_context check `inference_dir` for the measure stage with a clear ValueError, and fix the recipe comments/readme to pass --inference_config.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/components/metrics/base_metric.py",
+   "lines": "151-160",
+   "category": "robustness",
+   "severity": "medium",
+   "summary": "Reference/hypothesis alignment is enforced only by `assert`, so under `python -O` misordered SCP files are scored silently and the WER/CER numbers are wrong.",
+   "scenario": "ref.scp = [u1 'hello world', u2 'good morning'], hyp.scp = [u2 'good morning', u1 'hello world'] (same length, swapped). Normal python: AssertionError 'UID mismatch between ref and hyp'. `python -O run.py ...` (or PYTHONOPTIMIZE=1, common in production wrappers): iter_inputs yields ('u1', {'ref':'hello world','hyp':'good morning'}) etc. and WER() returns {'WER': 100.0} where the correct value is 0.0, with no warning. Verified (SCRATCH/chk/chk_opt2.py). With unequal lengths under -O the code instead dies with an unrelated `KeyError: 'hyp'` at line 161 (verified). The same pattern is used for user-facing validation in measure() (`assert hasattr(metrics_config, 'metrics')`, metric.py:76) and load_scp_paths (scp_utils.py:77-85).",
+   "evidence": "base_metric.py:151 `assert not finished_keys, f\"SCP length mismatch across keys: {keys}\"`; :157 `assert rows[key][0] == utt_id, (...)`; docstring lines 99-102 promise AssertionError as the contract. Execution under -O: `asserts stripped: True / WER: {'WER': 100.0} (correct answer: 0.0)`.",
+   "confidence": 0.9,
+   "related_files": [
+    "espnet3/utils/scp_utils.py",
+    "espnet3/systems/base/metric.py"
+   ],
+   "suggested_fix": "Raise ValueError/RuntimeError explicitly instead of assert for these trust-boundary checks (iter_inputs length/UID, measure's `metrics` presence, load_scp_paths existence).",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/asr/metrics/wer.py",
+   "lines": "104-118",
+   "category": "bug",
+   "severity": "medium",
+   "summary": "A test set whose ref.scp/hyp.scp contain zero utterances is reported as a perfect score ({'WER': 0}, {'CER': 0}) instead of an error, because jiwer 4.0 returns 0 for empty lists and the metrics never check for an empty corpus.",
+   "scenario": "Empty (0-line) ref.scp and hyp.scp under inference_dir/<test>/ (e.g. a test-set directory populated by an external/third-party runner, a manually truncated file, or a foreign SCP dropped in for scoring) -> WER.__call__ builds refs=[], hyps=[] -> jiwer.wer([], []) -> 0 -> round(0*100,2) -> {'WER': 0} written into metrics.json and later rendered into the model-card README by pack_model as a real result. Same for CER (cer.py:102-116) and TER (ter.py:94-108). Verified with staged jiwer 4.0.0 (`WER zero utterances -> {'WER': 0}`, `CER zero utterances -> {'CER': 0}`). Note: espnet3's own InferenceRunner only creates a shard SCP when at least one record is written and infer() rejects empty datasets, so this is reachable mainly through externally produced files; but jiwer is unpinned, so the behaviour also varies with the installed jiwer version.",
+   "evidence": "wer.py:104-110 `refs = []; hyps = []; for _, row in self.iter_inputs(...): ...; score = jiwer.wer(refs, hyps) * 100` with no `if not refs: raise`; identical shape in cer.py:102-108 and ter.py:94-100. pyproject.toml:86 declares `\"jiwer\"` with no version bound.",
+   "confidence": 0.7,
+   "related_files": [
+    "espnet3/systems/asr/metrics/cer.py",
+    "espnet3/systems/asr/metrics/ter.py",
+    "espnet3/utils/publication_utils.py"
+   ],
+   "suggested_fix": "Raise a clear error (or at least return NaN with a warning) when no utterances were read; consider pinning a jiwer major version.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "90, 108-109",
+   "category": "design",
+   "severity": "medium",
+   "summary": "measure() keys results by metric class path, so two configured metrics of the same class silently overwrite each other in metrics.json and share the same alignment output file.",
+   "scenario": "metrics: [ {metric: WER, inputs: {ref: ref, hyp: hyp}}, {metric: WER, inputs: {ref: ref, hyp: hyp_nbest0}} ] (exactly the multi-input use the base_metric.py docstring lines 33-48 advertises), or WER with and without clean_types. Line 90 resets `results['espnet3.systems.asr.metrics.wer.WER'] = {}` for the second instance, so only the last one's scores survive into metrics.json/README, and both write `<test>/wer_alignment` (wer.py:115) so the first alignment file is clobbered. Verified with a Dummy metric configured twice: results == {'__main__.Dummy': {'test_a': {'score': 'second'}}} and alignment file content 'second'.",
+   "evidence": "metric.py:90 `results[get_class_path(metric)] = {}` inside `for idx, metric_config in enumerate(metrics_config.metrics)`; metric.py:109 `results[get_class_path(metric)].update({test_name: metric_result})`; wer.py:115 fixed filename `\"wer_alignment\"`.",
+   "confidence": 0.9,
+   "related_files": [
+    "espnet3/systems/asr/metrics/wer.py",
+    "espnet3/systems/asr/metrics/cer.py",
+    "espnet3/components/metrics/base_metric.py"
+   ],
+   "suggested_fix": "Key results by an explicit `name` in the metric config (falling back to class path + index) and pass that name to the metric for output filenames; raise on duplicate keys.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "17-39",
+   "category": "design",
+   "severity": "medium",
+   "summary": "Test sets are discovered by scanning inference_dir instead of using the authoritative inference test list, so stale directories are scored and bundled, and a directory left by a failed inference run aborts the whole stage.",
+   "scenario": "(a) Stale: run infer with dataset.test=[valid,test], later change inference.yaml to test=[test_other] and re-run infer, then measure -> `old` dirs are still scored; metrics.json (and the pack_model README table built from it) reports numbers for test sets that no longer belong to the experiment. Verified: an extra 'old_testset' dir appears in results alongside 'valid'/'test'. (b) Failed run: infer() creates `${inference_dir}/<name>/` (inference.py:134-135) before building the dataset/model; if test set 2 fails, the empty dir remains and measure's scan feeds it to load_scp_paths which asserts 'Missing SCP file: .../failed_set/ref.scp' -> no metrics.json at all, even for the completed test set. Verified. Root cause: run_utils only propagates inference_dir to metrics_config (run_utils.py:20-24), never `dataset.test`, and no ASR metrics.yaml defines `dataset`, so the `dataset.test` branch (lines 19-22) is dead in every shipped recipe and the scan is always used.",
+   "evidence": "metric.py:25-29 `test_sets = sorted(entry.name for entry in inference_dir.iterdir() if entry.is_dir() and not entry.name.startswith('.'))`; inference.py:134-135 `output_dir = Path(config.inference_dir) / test_name; output_dir.mkdir(parents=True, exist_ok=True)` before `provider.build_dataset` at :182; run_utils.py:20-24 context keys exclude dataset.",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/base/inference.py",
+    "espnet3/utils/run_utils.py",
+    "espnet3/utils/publication_utils.py",
+    "egs3/mini_an4/asr/conf/metrics.yaml"
+   ],
+   "suggested_fix": "Propagate inference_config.dataset.test names into metrics_config (or have infer write a completion marker per test set that measure requires), and log which directories were skipped/selected.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/components/metrics/base_metric.py",
+   "lines": "12-14, 51",
+   "category": "docs-mismatch",
+   "severity": "medium",
+   "summary": "BaseMetric.__call__ is annotated/documented as receiving `output_dir: Path`, but measure() passes the raw config string, so a custom metric written to the abstract contract breaks.",
+   "scenario": "A user implements `def __call__(self, data, test_name, output_dir: Path): (output_dir / test_name).mkdir(...)` exactly as the ABC signature suggests -> `TypeError: unsupported operand type(s) for /: 'str' and 'str'` at measure time, because metric.py:108 passes `metrics_config.inference_dir` (a str; verified runtime type 'str'). The shipped metrics silently work around it with `Path(inference_dir)` (wer.py:113) and even rename the parameter to `inference_dir`, and the test PathMetric (test_metric.py:30) also wraps in Path(), showing the contract is not what is declared.",
+   "evidence": "base_metric.py:12-14 `def __call__(self, data: Dict[str, Path], test_name: str, output_dir: Path) -> Dict[str, float]`; metric.py:108 `metric_result = metric(data, test_name, metrics_config.inference_dir)`; wer.py:69 `inference_dir: Path` then :113 `test_dir = Path(inference_dir) / test_name`. Executed probe: `output_dir runtime type: {'...TypeProbe': {'test_a': {'type': 'str'}}}`.",
+   "confidence": 0.9,
+   "related_files": [
+    "espnet3/systems/base/metric.py",
+    "espnet3/systems/asr/metrics/wer.py",
+    "test/espnet3/systems/base/test_metric.py"
+   ],
+   "suggested_fix": "Pass `Path(metrics_config.inference_dir)` from measure() and unify the parameter name (`output_dir` vs `inference_dir`) between the ABC and implementations.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "76-78",
+   "category": "bug",
+   "severity": "medium",
+   "summary": "The `metrics` presence check uses hasattr, which passes when the key exists with a null value (the TTS template default), producing a misleading `TypeError: 'NoneType' object is not iterable` instead of the intended 'Please specify metrics' message.",
+   "scenario": "Any TTS recipe that inherits egs3/TEMPLATE/tts/conf/metrics.yaml (which sets `metrics:` and `dataset:` to null, lines 13-15) and runs measure without overriding `metrics` -> `assert hasattr(metrics_config, 'metrics')` is True for a null node -> `enumerate(None)` raises TypeError with no hint about the config. Verified with OmegaConf.create({'metrics': None,...}): `hasattr -> True`, `measure raised: TypeError | 'NoneType' object is not iterable`. Also inconsistent with the ASR template, which omits `dataset` entirely rather than declaring it null.",
+   "evidence": "metric.py:76 `assert hasattr(metrics_config, \"metrics\"), \"Please specify `metrics`!\"`; :78 `for idx, metric_config in enumerate(metrics_config.metrics)`; egs3/TEMPLATE/tts/conf/metrics.yaml:13-15 `dataset:` / `metrics:` (null).",
+   "confidence": 0.9,
+   "related_files": [
+    "egs3/TEMPLATE/tts/conf/metrics.yaml",
+    "egs3/TEMPLATE/asr/conf/metrics.yaml"
+   ],
+   "suggested_fix": "Check `metrics_config.get('metrics')` for None/empty and raise ValueError with the helpful message.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/asr/metrics/wer.py",
+   "lines": "41-51",
+   "category": "design",
+   "severity": "low",
+   "summary": "Empty reference/hypothesis strings are silently replaced with the literal '.', which alters both the numerator and denominator of WER/CER/TER without any warning.",
+   "scenario": "refs ['a b c', ''] hyps ['a c', 'x']: true corpus WER = 2 errors / 3 ref words = 66.67; reported 50.0 because the empty ref becomes a 1-word '.' (verified). ref '' hyp '' -> 0.0 (counted as a correct 1-word utterance); ref '' hyp '.' -> 0.0 although the model inserted a token. For CER the placeholder is 1 char (ref '' hyp 'abc' -> 300.0 instead of undefined/3 insertions). TER's placeholder is a raw '.' that is not tokenized (ter.py:59-61) so it can never match a real tokenized '\u2581.'. No log line records how many utterances were substituted.",
+   "evidence": "wer.py:50-51 `cleaned = self.cleaner(text).strip(); return cleaned if cleaned else \".\"`; cer.py:50-51 identical; ter.py:57-61. Verified numbers via SCRATCH/chk/chk_jiwer.py.",
+   "confidence": 0.85,
+   "related_files": [
+    "espnet3/systems/asr/metrics/cer.py",
+    "espnet3/systems/asr/metrics/ter.py"
+   ],
+   "suggested_fix": "Count empty references/hypotheses explicitly (e.g. skip empty refs from the denominator, count all hyp tokens as insertions) or at minimum log a warning with the count of placeholder substitutions and document the convention.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "92-101",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "measure() does not validate that the configured `inputs` aliases match the metric's ref_key/hyp_key, so realistic config mistakes surface as bare KeyError/ValueError with no pointer to the config.",
+   "scenario": "(a) `inputs: [text, hypothesis]` (list form, allowed by load_scp_paths) with the default WER (ref_key='ref') -> data has keys text/hypothesis -> `KeyError: 'ref'` from iter_inputs (verified). (b) `inputs:` present but null (e.g. a template that lists the key) -> hasattr is True -> `OmegaConf.to_container(None)` -> `ValueError: Input cfg is not an OmegaConf config object (NoneType)` (verified). Neither message mentions metrics.yaml or the alias contract described in base_metric.py:31-48.",
+   "evidence": "metric.py:92-93 `if hasattr(metric_config, \"inputs\"): inputs = OmegaConf.to_container(metric_config.inputs, resolve=True)`; no check that `metric.ref_key`/`metric.hyp_key` are in the resulting alias set before `metric(data, ...)` at :108.",
+   "confidence": 0.85,
+   "related_files": [
+    "espnet3/utils/scp_utils.py",
+    "espnet3/components/metrics/base_metric.py"
+   ],
+   "suggested_fix": "After building `inputs`, verify the metric's ref_key/hyp_key (when present) are among the aliases and raise a ValueError naming the metric index and expected keys; treat null `inputs` as absent.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "egs3/TEMPLATE/asr/conf/metrics.yaml",
+   "lines": "50-52",
+   "category": "docs-mismatch",
+   "severity": "low",
+   "summary": "The TER example points `bpemodel` at `exp/bpe_5000/bpe.model`, but the recipes' tokenizer stage saves the model under `${data_dir}/bpe_5000` (i.e. data/bpe_5000/bpe.model), and TER only discovers a wrong path at the first utterance of the first test set.",
+   "scenario": "A user uncomments the TER block as instructed and runs measure after training librispeech_100 (tokenizer.save_path = `${data_dir}/${model_type}_${vocab_size}` = ./data/bpe_5000). TER(...) constructs fine (SentencepiecesTokenizer loads lazily), WER and CER run, then TER fails inside __call__ with `OSError: Not found: \"exp/bpe_5000/bpe.model\"` (verified with a bad path), after the earlier metrics' work is discarded because metrics.json is only written at the end.",
+   "evidence": "egs3/TEMPLATE/asr/conf/metrics.yaml:52 `#     bpemodel: exp/bpe_5000/bpe.model`; egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml:65 `save_path: ${data_dir}/${tokenizer.model_type}_${tokenizer.vocab_size}` with data_dir `${recipe_dir}/data` (TEMPLATE training.yaml:26); ter.py:43 `self.tokenizer = SentencepiecesTokenizer(bpemodel)` (lazy, espnet2/text/sentencepiece_tokenizer.py:18-29).",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/asr/metrics/ter.py",
+    "egs3/librispeech_100/asr/conf/tuning/training_e_branchformer.yaml"
+   ],
+   "suggested_fix": "Document `bpemodel: ${recipe_dir}/data/bpe_5000/bpe.model` (or reference the training tokenizer config) and validate the path exists in TER.__init__.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/components/metrics/base_metric.py",
+   "lines": "153-161",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "iter_inputs has no duplicate-utterance detection, so duplicated utt_ids (present identically in ref and hyp) are silently double-counted in the corpus score.",
+   "scenario": "ref.scp/hyp.scp each contain 'u1' twice (e.g. a dataset with a repeated key, or a re-run that appended to a shard) -> both copies pass the lockstep UID check and WER = 3/7 = 42.86 instead of 2/5 = 40.0 (verified in SCRATCH/e2e/sim_measure_real.py). The docstring says the helper 'validates that all files contain the same utterance IDs' which a reader may take to include uniqueness.",
+   "evidence": "base_metric.py:154-161 compares `rows[key][0] == utt_id` across keys only; no `seen` set. Verified output: `test: {'WER': 42.86}` for a set whose de-duplicated WER is 40.0.",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/base/inference_runner.py"
+   ],
+   "suggested_fix": "Track seen utt_ids and raise (or warn and skip) on duplicates.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "test/espnet3/systems/asr/metrics/test_metrics.py",
+   "lines": "110, 123, 135",
+   "category": "test-quality",
+   "severity": "low",
+   "summary": "`@pytest.mark.execution_timeout(30)` is an unregistered marker with no plugin behind it, so it emits PytestUnknownMarkWarning and provides no timeout.",
+   "scenario": "Running the file yields 3 `PytestUnknownMarkWarning: Unknown pytest.mark.execution_timeout - is this a typo?` (verified); if the repo ever enables `--strict-markers` these three tests error out at collection. No other espnet3 test uses this marker; the intended plugin (pytest-timeout uses `timeout`) is not installed.",
+   "evidence": "test_metrics.py:110 `@pytest.mark.execution_timeout(30)`; setup.cfg has `[tool:pytest]` commented out (line 4) so no marker registration; pytest run output shows the three warnings.",
+   "confidence": 0.9,
+   "test_name": "test_ter_zero_when_identical, test_ter_positive_when_different, test_ter_requires_jiwer",
+   "suggested_fix": "Remove the marker or register it / switch to the installed timeout mechanism.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "test/espnet3/systems/base/test_metric.py",
+   "lines": "53-75",
+   "category": "test-gap",
+   "severity": "low",
+   "summary": "There is no end-to-end test of measure() driving the real WER/CER classes through Hydra from a recipe metrics.yaml, and the WER/CER unit tests silently degrade to 'raises RuntimeError' when jiwer is absent, so the default recipe scoring path is effectively untested in CI.",
+   "scenario": "test_metric.py uses only DummyMetric/NoKeyMetric/PathMetric; test_metrics.py calls WER()/CER() directly with hand-built dicts and, when jiwer is missing (as in this repo's env, where the project's own pytest run skipped 3 tests), the `try: import jiwer except ImportError: pytest.raises(RuntimeError)` branch passes without computing any score; test_base_system.py monkeypatches `measure`. Consequently none of the verified issues above (missing inference_dir on the documented path, zero-utterance score 0, same-class collision, str vs Path, TTS null `metrics`) would be caught, and neither would a Hydra/`_convert_` regression in instantiating `clean_types: null`.",
+   "evidence": "test_metric.py:65 `\"metrics\": [{\"metric\": {\"_target_\": f\"{__name__}.DummyMetric\"}}]`; test_metrics.py:25-36 `try: import jiwer ... except ImportError: with pytest.raises(RuntimeError, ...)`; grep shows no 'measure' usage under test/espnet3/systems/asr/.",
+   "confidence": 0.85,
+   "test_name": "test_metric_uses_metric_keys_and_writes_json",
+   "suggested_fix": "Add a test that loads egs3/TEMPLATE/asr/conf/metrics.yaml via load_and_merge_config, points inference_dir at tmp SCP files and asserts WER/CER values; mark jiwer-dependent tests with skipif instead of asserting the ImportError branch; add cases for empty files, duplicate metric classes and null `metrics`.",
+   "verified_by_execution": false
+  },
+  {
+   "file": "espnet3/components/metrics/base_metric.py",
+   "lines": "166-175",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "The SCP parser treats any whitespace (incl. tabs) as the utt_id delimiter and has no escaping for newlines in values, so hypotheses containing '\\n' or '\\t' produce misleading alignment errors or inflated scores rather than a clear message.",
+   "scenario": "Inference writes `f\"{idx_value} {value}\\n\"` unescaped (inference_runner.py:346). (a) A model hypothesis containing a newline (multi-line LLM/Whisper-style output) splits into two SCP lines; iter_inputs then reports 'UID mismatch between ref and hyp: uN != <first word of continuation>' or 'SCP length mismatch', pointing the user at ordering rather than at the offending text. (b) A tab inside a value survives `split(maxsplit=1)` but jiwer's word splitter only splits on ' ', so ref 'a\\tb' vs hyp 'a b' scores WER 200% (verified).",
+   "evidence": "base_metric.py:172-174 `parts = line.split(maxsplit=1); utt_id = parts[0].strip(); value = parts[1].strip() if len(parts) > 1 else \"\"`; inference_runner.py:346 `handle.write(f\"{idx_value} {value}\\n\")`.",
+   "confidence": 0.7,
+   "related_files": [
+    "espnet3/systems/base/inference_runner.py"
+   ],
+   "suggested_fix": "Normalize/escape control whitespace when writing SCP values (inference side) and normalize `\\t`/`\\n` to spaces when reading (metrics side), or raise a targeted error naming the utt_id.",
+   "verified_by_execution": true
+  },
+  {
+   "file": "espnet3/systems/asr/metrics/wer.py",
+   "lines": "110-111",
+   "category": "design",
+   "severity": "low",
+   "summary": "Each metric computes the full corpus alignment twice (jiwer.wer/cer and then process_words/process_characters), doubling measure-stage time on large test sets for no benefit.",
+   "scenario": "For a large test set (e.g. LibriSpeech test-other, ~3k utterances), `jiwer.wer(refs, hyps)` runs the edit-distance over the whole corpus and `jiwer.process_words(refs, hyps)` immediately repeats the same computation; `details.wer` (and `details.cer` for process_characters) already holds the score. Same in cer.py:108-109 and ter.py:100-101.",
+   "evidence": "wer.py:110 `score = jiwer.wer(refs, hyps) * 100`; :111 `details = jiwer.process_words(refs, hyps)`; jiwer 4.0 exposes `process_words(...).wer`.",
+   "confidence": 0.8,
+   "related_files": [
+    "espnet3/systems/asr/metrics/cer.py",
+    "espnet3/systems/asr/metrics/ter.py"
+   ],
+   "suggested_fix": "Call process_words/process_characters once and take `details.wer` / `details.cer`.",
+   "verified_by_execution": false
+  },
+  {
+   "file": "espnet3/systems/base/metric.py",
+   "lines": "24-34",
+   "category": "robustness",
+   "severity": "low",
+   "summary": "When inference_dir does not exist (measure run before infer, or wrong exp_tag), the scan raises a raw FileNotFoundError and the helpful 'No test sets found...' ValueError branch is unreachable.",
+   "scenario": "`--stages measure` with a typo in exp_tag, or before infer has run -> `Path(inference_dir).iterdir()` at line 27 raises `FileNotFoundError: [Errno 2] No such file or directory: 'exp/foo/inference'` (verified) rather than the intended message explaining that test-set subdirectories or `metrics_config.dataset.test` are required.",
+   "evidence": "metric.py:25-29 iterates `inference_dir.iterdir()` without an existence check; :30-34 the ValueError is only reached when the directory exists but is empty.",
+   "confidence": 0.85,
+   "related_files": [],
+   "suggested_fix": "Check `inference_dir.is_dir()` first and raise the descriptive ValueError (mentioning that `infer` must run first).",
+   "verified_by_execution": true
+  }
+ ],
+ "test_file_assessments": [
+  {
+   "file": "test/espnet3/systems/base/test_metric.py",
+   "n_tests": 12,
+   "n_meaningful": 12,
+   "n_problematic": 0,
+   "notes": "All tests exercise real measure()/iter_inputs code paths with tmp files and assert concrete values; however every metric is a Dummy, so Hydra instantiation of the shipped WER/CER configs, str-vs-Path output_dir, same-class collisions, null `metrics`, and empty SCP inputs are never covered. test_iter_inputs_* cases duplicate those in components/metrics/test_base_metric.py."
+  },
+  {
+   "file": "test/espnet3/components/metrics/test_base_metric.py",
+   "n_tests": 7,
+   "n_meaningful": 7,
+   "n_problematic": 0,
+   "notes": "Good coverage of iter_inputs happy paths and the two assertion failures; no test for duplicate utt_ids, tab/newline in values, or behaviour when a listed key is absent from `data` (KeyError)."
+  },
+  {
+   "file": "test/espnet3/systems/asr/metrics/test_metrics.py",
+   "n_tests": 10,
+   "n_meaningful": 8,
+   "n_problematic": 2,
+   "notes": "test_wer_writes_alignment_and_score and test_cer_writes_alignment_and_score branch on `import jiwer` and, when it is missing (the case in this repo's env), only assert the RuntimeError -- so in that environment they never validate a score yet still pass. Three TER tests carry an unregistered `execution_timeout` marker (no effect, warning). No tests for zero utterances, the '.' placeholder's effect on corpus scores, or clean_types handling; the placeholder tests only check the private _clean helper."
+  }
+ ]
+}

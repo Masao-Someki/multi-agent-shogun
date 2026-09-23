@@ -1,0 +1,1020 @@
+{
+ "asr-system#01": {
+  "id": "asr-system#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "system.py:174-180 calls train_sentencepiece(train_text_path, output_path, vocab_size, model_type=...) only; sentencepiece.py:84-90 shows character_coverage and user_defined_symbols are separate keyword params that default to 1.0/[] and are never forwarded. Grepping egs3 shows every shipped tokenizer config (mini_an4 x5, librispeech e_branchformer) declares tokenizer.character_coverage: 1.0 in the YAML, confirming it is treated as a live, tunable key by recipe authors even though it happens to equal the function default today -- a non-default value (e.g. 0.995 for CJK) would silently be dropped with no warning. Reachable via the documented config schema, not contrived misuse.",
+  "verified_by_execution": false
+ },
+ "asr-system#02": {
+  "id": "asr-system#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "system.py:94-99 _has_tokenizer() only checks {model_type}.model/.vocab existence, matching cited evidence exactly. Confirmed save_path in shipped configs is `${data_dir}/${tokenizer.model_type}_${tokenizer.vocab_size}` (egs3/mini_an4/asr/conf/training_asr_transformer.yaml:64), independent of text_builder/dataset content, and tokens.txt is separately required (referenced at lines 51/75 as token_list: ${tokenizer.save_path}/tokens.txt) but written later at sentencepiece.py:152-161 after the .model/.vocab shutil.move -- so a kill between those steps leaves _has_tokenizer() True with no tokens.txt. Staleness scenario (re-running after fixing transcripts without touching vocab_size/model_type) is likewise real since nothing in save_path or _has_tokenizer depends on text content. Both scenarios are realistic HPC/resumable-pipeline failure modes.",
+  "verified_by_execution": false
+ },
+ "asr-system#03": {
+  "id": "asr-system#03",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "system.py:162-165 raises unconditionally if train_text_path.exists(), exactly as cited, with no distinction between 'stale leftover from a killed run' and 'legitimate conflicting file'. Confirmed _has_tokenizer() (checked first, at line 113) only looks for {model_type}.model/.vocab, so after a crash between writing train.txt (line 168-169) and train_sentencepiece() completing, retry re-enters train_tokenizer(), regenerates the same train_text_path, and hits the guard -- there is no atexit/temp-file/rename protection anywhere in the function. Confirmed the cited test (test/espnet3/systems/asr/test_system.py:226) only asserts the guard fires, not that resumability is preserved. Realistic failure mode for a staged, resumable pipeline on preemptible HPC allocations.",
+  "verified_by_execution": false
+ },
+ "asr-system#04": {
+  "id": "asr-system#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "sentencepiece.py:214-218 confirmed verbatim: `for token in add_token_list: ... m.pieces.insert(insert_position, p)` never advances insert_position. For 2+ tokens this necessarily reverses their order in m.pieces relative to new_token_list (Python list built correctly via slicing at lines 201-203), since each subsequent insert at the same position pushes the prior insertion one slot later. Logic confirmed by static trace (no need to re-run); grep confirms add_special_tokens has no other in-repo caller besides the one test (test_train_sentencepiece_and_add_special_tokens), which per the finding only checks new_converter.token_list, not the raw model's piece order, so the bug has no test coverage. Blast radius is limited to code that reconstructs a token list directly from the persisted _sp.model file's own piece order (bypassing the returned new_converter) -- a real but narrower misuse path, matching medium severity (design debt with a concrete misuse path) rather than high.",
+  "verified_by_execution": false
+ },
+ "asr-system#05": {
+  "id": "asr-system#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "sentencepiece.py:136-144 confirmed: spm.SentencePieceTrainer.Train(...) is called with no try/except and no pre-validation of vocab_size against character count, exactly as cited. Confirmed shipped mini_an4 configs use vocab_size: 30 with bpe model_type, so a small-vocab misconfiguration is plausible in exactly the recipes this ships with, not just contrived unigram cases. Consequence is a low-level, unhelpful C++ RuntimeError with no espnet3-level guidance -- a real but purely diagnostic/UX gap (edge case, misleading error), matching medium.",
+  "verified_by_execution": false
+ },
+ "asr-system#06": {
+  "id": "asr-system#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "transducer_task.py confirmed: --init argument added with no restriction (matches cited ~118-123 region), and build_model raises NotImplementedError for args.init is not None (matches cited ~421-426 region, exact message verified). Confirmed espnet2/tasks/asr_transducer.py:427 has the identical 'Currently not supported' message, so this is inherited upstream espnet2 behavior copied into espnet3's transducer_task.py rather than an espnet3-introduced regression -- worth noting, but it doesn't change the user-facing footgun. Confirmed the sibling shipped config egs3/mini_an4/asr/conf/training_asr_transducer.yaml (task: espnet3.systems.asr.task.ASRTask) sets init: xavier_uniform and works (ASRTask.build_model at task.py:659-660 does call initialize(model, args.init)), while egs3/mini_an4/asr/conf/training_transducer_asr_conformer_rnnt.yaml (task: ASRTransducerTask) has no init: key at all -- exactly the 'omits init only to avoid the crash' pattern claimed. Design-debt/medium as rated.",
+  "verified_by_execution": false
+ },
+ "base-inference#01": {
+  "id": "base-inference#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "stages_utils.py:138-197 confirmed: the per-stage loop only special-cases rank for choosing a log filename on stage=='train' (lines 152-173); every stage, train included, calls `fn()` (line 184) unconditionally with no rank gate before or after. system.py train() (base/system.py:296) calls training.py's train(config) which calls trainer.fit(**fit_kwargs) directly (training.py:100) with no is_global_zero/rank check before or after -- fit() returning does not exit the process. Confirmed egs3 shipped trainer configs use `strategy: auto` with no `devices` pinned (egs3/mini_an4/asr/conf/training.yaml:120), so on any multi-GPU host Lightning's default DDP subprocess launcher applies without any special opt-in flag, and DEFAULT_STAGES in egs3/TEMPLATE/asr/run.py includes both 'train' and 'infer' by default. Lightning's non-spawn DDP launcher re-executes the entry-point script per rank as a full subprocess; after trainer.fit() returns in each subprocess it continues executing the rest of run.py's stage loop, so all ranks (not just rank 0) reach infer() and call BaseRunner against the same output_dir. Confirmed the lock mechanism at base_runner.py:197-206 (os.O_CREAT|O_EXCL) and the exact 'Shard is already locked by another runner' message at line 351 that this collision triggers. This is a real, realistic distributed/idempotency bug matching the 'high' rubric bucket explicitly (not requiring any non-default opt-in beyond having >1 visible GPU).",
+  "verified_by_execution": false
+ },
+ "base-inference#02": {
+  "id": "base-inference#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "base_runner.py confirmed: resume defaults to True (line 84 default param), _resolve_shards (lines 306-333) only compares manifest_shards to planned_shards (item/shard-id plan) with no reference to model/provider identity anywhere in the class, and _filter_pending_shards (336-357) skips any shard where is_shard_done() is True with no logging call anywhere in the file (grep for logger/log. in base_runner.py returned nothing) -- confirms both the silent-skip and the no-visible-feedback claims exactly. Confirmed the realistic trigger path via egs3/mini_an4/asr/conf/inference.yaml: `inference_dir` defaults to the stem of the --inference_config filename (not derived from model.asr_model_file), and `model.asr_model_file: ${exp_dir}/epoch0_step1_valid.loss.ckpt` is a separately-editable key under the same file -- so editing just the checkpoint path and re-running the same inference.yaml (a very ordinary checkpoint-comparison workflow) reuses the same output_dir/manifest and silently serves stale hyp.scp with no error or warning. Matches the 'idempotency bug' example explicitly named under the 'high' rubric bucket.",
+  "verified_by_execution": false
+ },
+ "base-inference#03": {
+  "id": "base-inference#03",
+  "verdict": "corrected",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "The pre-locking mechanism is real: _filter_pending_shards (base_runner.py:336-357) calls _try_lock_shard on every shard added to `pending` before any of them run, and only the shard that actually enters _run_one_shard's try/finally (376-394) gets unlocked. But the specific scenario ('a 2-shard local run') is impossible: _plan_shards (283-290) sets num_shards=1 unconditionally whenever env=='local' ('if par_config is not None and env not in (\"local\",): num_shards = ...'), so under env=local there is NEVER more than one shard in `shards`/`pending`, and _run_local (396-408) can never iterate past a single shard. Confirmed by the fact that the repo's own tests (test/espnet3/parallel/test_base_runner_batch.py lines ~170-291) have to monkeypatch `_plan_shards` directly to fabricate a 2-shard plan under the default (local) env -- the real _plan_shards can't produce that. The defect IS reachable, just not via _run_local/env=local: it lives in _run_parallel_dask (410-457), used for non-local envs (local_gpu/kube/slurm/other dask clusters) where num_shards=n_workers (288-289) and shards run concurrently. There, _filter_pending_shards still pre-locks every pending shard before `client.map(wrapped, list(shards))` (443) dispatches them; if one running shard's forward() raises, `future.result()` raises inside the as_completed loop (446-451), and the `except Exception: client.cancel(futures)` (452-455) cancels futures for any shard that was locked but had not yet started on a worker (e.g. n_workers < num shards, so some shards were still queued) -- those never enter _run_one_shard, so their lock files are never removed, matching the described stray-lock symptom exactly, just in a distributed/multi-worker config rather than plain local.",
+  "corrected_summary": "_filter_pending_shards() pre-locks every pending shard before dispatch; when a shard fails while other pending shards have not yet started on a Dask worker (env != 'local', n_workers < number of pending shards), client.cancel(futures) in the exception handler cancels those not-yet-started futures without ever running _run_one_shard's try/finally, leaving their lock files on disk forever.",
+  "corrected_scenario": "A non-local parallel env (e.g. env: local_gpu / kube / slurm) with n_workers < number of pending shards, so some shards are queued rather than dispatched immediately. _filter_pending_shards locks all pending shards up front. _run_parallel_dask submits all shard tasks via client.map; a running shard's forward() raises, future.result() re-raises it inside the as_completed loop, and the except-block calls client.cancel(futures) on all futures including the still-queued ones. Those queued shards' code (and thus their _unlock_shard finally) never executes, so their pre-created lock files are orphaned. Under env='local' specifically, this cannot happen because _plan_shards forces exactly one shard regardless of item count or n_workers.",
+  "corrected_lines": "espnet3/parallel/base_runner.py:336-357 (pre-locking), 283-290 (_plan_shards forcing num_shards=1 for env=='local', which rules out the local-env framing), 410-457 (_run_parallel_dask, the actually-affected path, especially 443 client.map and 452-455 client.cancel)"
+ },
+ "base-inference#04": {
+  "id": "base-inference#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Read inference_provider.py:207-212 and confirmed the two independent `if` statements exactly as described (not elif): `if isinstance(config, dict): config = OmegaConf.create(config); organizer = instantiate(config.dataset)` followed unconditionally by `if isinstance(config, DictConfig): organizer = instantiate(config.dataset)`, which refires since config was just rebound. I verified the dict-conversion trigger mechanism directly: espnet3/utils/config_utils.py's _ensure_target_convert_all (called unconditionally inside load_and_merge_config, which egs3/TEMPLATE/asr/run.py uses to build inference_config) sets _convert_: 'all' on any node with a _target_ key, and TEMPLATE's inference.yaml provider node does have _target_ (egs3/TEMPLATE/asr/conf/inference.yaml:159). I reproduced with a standalone hydra.utils.instantiate() call that when the top-level instantiate target has _convert_: 'all', an extra kwarg that is itself a DictConfig (like inference_config=config passed in espnet3/systems/base/inference.py's `instantiate(provider_config, inference_config=config, ...)`) gets converted to a plain dict on the constructed object -- confirming self.config inside InferenceProvider really does become a plain dict on every default TEMPLATE run, not just 'some instantiation paths' as hedged. So build_dataset() double-constructs DataOrganizer via self.config on essentially every call from build_env_local()/setup_fn(), not merely an edge case. This is a real, broadly-reachable inefficiency (redundant DataOrganizer/data_src construction) rather than a rare misconfiguration.",
+  "corrected_summary": null,
+  "corrected_scenario": "Reachability is actually the default TEMPLATE path (not a rare edge case): load_and_merge_config always runs _ensure_target_convert_all, which sets _convert_: all on the provider node (which has _target_) in every TEMPLATE inference.yaml; when InferenceProvider is instantiated with inference_config=config as an extra kwarg, Hydra's _convert_: all recursively converts that nested DictConfig into a plain dict, so self.config is a plain dict on essentially every run, and build_dataset(self.config) called from build_env_local()/setup_fn() double-constructs DataOrganizer every time (not just when a hypothetical dict path happens to be hit).",
+  "corrected_lines": null
+ },
+ "base-inference#05": {
+  "id": "base-inference#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed via direct code reading. InferenceRunner.__init__ (inference_runner.py:119-136) stores self.idx_key/self.hyp_key/self.ref_key but grep shows self.hyp_key/self.ref_key are never read anywhere else in the file (only self.idx_key is read, inside the apparently-unused resolve_idx_key method). forward/write_record are @staticmethod (192, 297) invoked by BaseRunner.reduce_state as `cls.write_record(state['_writers'], result, state, **env)` (base_runner.py:243), where env comes from provider.build_env_local()/provider_params, not the runner instance. espnet3/systems/base/inference.py's provider_params dict (built ~141-155) sets input_key/idx_key/output_keys/output_fn_path/output_artifacts but never hyp_key/ref_key; runner_kwargs (~169-176) hard-codes 'ref_key': [] purely for the constructor, a separate channel from provider_params/env. So write_record's hyp_key/ref_key parameters (297,303-304) always default to None at runtime, making _validate_output_with_keys's expected set (168, 'expected = {idx_key, *hyp_keys, *ref_keys}') collapse to just {idx_key}, silently skipping hyp/ref presence validation regardless of config. When output_keys is explicitly configured (e.g. ['hyp','ref']), _resolve_output_keys (183-189) still returns it verbatim since it's non-empty, and the per-field loop 'value = output[field_key]' (331-339) has no try/except, so a genuinely missing field raises a bare KeyError instead of the descriptive ValueError. This is a real dead-parameter / silently-weakened-validation bug reachable via the documented output_keys config option.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null
+ },
+ "base-inference#06": {
+  "id": "base-inference#06",
+  "verdict": "corrected",
+  "severity": "low",
+  "verified_by_execution": false,
+  "reasoning": "The buggy indexing in build_output_transducer (egs3/TEMPLATE/asr/src/inference.py:15, 'hyp = model_output[0]') is real as a standalone code defect, but the reachability claim is false: the actual mini_an4/asr/conf/inference_transducer.yaml sets `output_fn: src.inference.build_output` (last line of that file), NOT build_output_transducer -- I read the file directly and confirmed this. build_output (the function actually referenced) does 'hyp = model_output[0][0]' (inference.py:6), which for the return_decoded_hyp=True transducer output shape (List[(text, token, token_int, hyp)] per the cited espnet2/bin/asr_transducer_inference.py behavior) correctly extracts model_output[0] = the first (text, token, token_int, hyp) tuple and [0] again = the decoded text string -- no TypeError, no silent pickle corruption; hyp.scp gets the correct decoded text. A repo-wide grep for 'build_output_transducer' shows it is referenced nowhere in egs3/ except its own definition -- it is unused, dead template code that no shipped recipe wires up. The underlying indexing bug in build_output_transducer is real and would bite a user who manually switches inference_transducer.yaml's output_fn to point at it, but as shipped today no recipe reaches this code path, so severity should be downgraded from medium to low (latent bug in an unreferenced template helper, not an active recipe defect).",
+  "corrected_summary": "build_output_transducer's 'hyp = model_output[0]' has a real indexing bug for the return_decoded_hyp=True tuple case, but it is dead code: no shipped egs3 recipe references it. mini_an4's inference_transducer.yaml actually uses `output_fn: src.inference.build_output`, whose 'model_output[0][0]' correctly extracts the decoded text for this transducer output shape, so the documented recipe does not hit this bug.",
+  "corrected_scenario": "Only reachable if a user manually edits inference_transducer.yaml (or a copy of it) to set `output_fn: src.inference.build_output_transducer` instead of the shipped `build_output`. As currently checked into the repo, the recipe is not affected.",
+  "corrected_lines": "egs3/TEMPLATE/asr/src/inference.py:6 (working build_output, actually used) vs :15 (buggy build_output_transducer, unused); egs3/mini_an4/asr/conf/inference_transducer.yaml (last line): `output_fn: src.inference.build_output`"
+ },
+ "base-inference#07": {
+  "id": "base-inference#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Read inference_provider.py:248-273 and confirmed build_model computes device = InferenceProvider._resolve_device(config) then calls instantiate(config.model, device=device) unconditionally in both the recipe_dir branch (267) and the else branch (273), with no check for an existing config.model.device. I verified Hydra's override semantics directly with a standalone instantiate() call: instantiate(model_config_with_device_key, device='cuda:0') overrides the config's own 'device' value with the kwarg every time, exactly as the finding claims. No log/warning is emitted when this override actually changes a user-set value. Realistic misuse path (a user pinning model.device explicitly) is plausible though not the primary documented usage.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null
+ },
+ "base-inference#08": {
+  "id": "base-inference#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed the comment egs3/TEMPLATE/asr/conf/inference.yaml:107-109 ('# batch_size: 1', commented out by default -- so no default-path impact). Confirmed base_runner.py:463-469 chunks indices into singleton lists whenever batch_size is set (including 1): 'indices = [list(indices[i:i+self.batch_size]) ...]'. Confirmed InferenceRunner.forward's is_batched = isinstance(idx, (list, tuple)) (~249) is True even for a length-1 list, taking the batched branch that wraps every input value in a list ('inputs_dict[key] = [data[key] for data in data_batch]') and calls model(**inputs_dict). Confirmed espnet2/bin/asr_inference.py's Speech2Text.__call__ signature expects a single torch.Tensor/np.ndarray for `speech` (line 492) and immediately does speech.unsqueeze(0) (514) -- a Python list has no .unsqueeze, so this would raise AttributeError, caught by forward's broad except and re-raised as the generic 'Batched inference failed' RuntimeError (271-280), losing per-utterance context beyond the exception chain. This is an opt-in misconfiguration (the TEMPLATE default has it commented out), matching the finding's own framing as a design/medium issue rather than a default-path crash.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null
+ },
+ "base-inference#09": {
+  "id": "base-inference#09",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed exactly. base_runner.py:283-290: `num_shards = 1` initialized, then `if par_config is not None and env not in (\"local\",): num_shards = int(getattr(par_config, \"n_workers\", 1))` -- this condition is False whenever env=='local', so num_shards stays 1 unconditionally regardless of n_workers's value. __call__ (458-478) always routes env=='local' to _run_local (396-408), a plain sequential for-loop with no worker pool, and since there is only ever 1 shard, extra n_workers has zero effect and no warning/log is emitted. Confirmed egs3/TEMPLATE/asr/conf/inference.yaml:72-74 ships exactly 'env: local' / 'n_workers: 1' side by side as the finding describes, which invites the misconfiguration of bumping n_workers while leaving env: local.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null
+ },
+ "base-inference#10": {
+  "id": "base-inference#10",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed directly. inference_runner.py:105-107 docstring: 'hyp_key and ref_key values may be scalars or lists/tuples. If lists are returned, each entry is written to its own SCP file (e.g., hyp0.scp, hyp1.scp).' But _materialize_output_value (39-79) has an explicit branch 'if isinstance(value, (list, tuple)): raise TypeError(f\"Top-level list outputs are not supported for '{field_key}'. ...\")' with no field-specific exception for hyp/ref. Grepped the whole file and writer_utils.py for any hypN.scp / f'{field_key}{i}.scp' pattern -- none exists anywhere. The docstring's claimed behavior is entirely fictional; the real, enforced contract is the opposite (no top-level list/tuple values allowed at all).",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null
+ },
+ "misc-utils#02": {
+  "id": "misc-utils#02",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read logging_utils.py:479-485 and :666-667 directly: both log_run_metadata and log_env_metadata call logger.info(msg, ...) immediately followed by logger.log(logging.INFO, msg, ..., stacklevel=2) with the identical format string (\"=== ESPnet3 run started: %s ===\" and \"Cluster env:\\n%s\"), each call independently evaluating datetime.now(), so the banner and cluster block are genuinely emitted twice per stage. The function's own docstring example output for log_run_metadata (lines ~448-455) even shows the duplicate 'run started' line twice with two different timestamps/source files, confirming this is a real, observable artifact rather than a misreading. stages_utils.run_stages calls log_stage_metadata (-> log_run_metadata + log_env_metadata) once per stage, so every stage log is affected.",
+  "verified_by_execution": false
+ },
+ "misc-utils#03": {
+  "id": "misc-utils#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "download_utils.py:157-158 is exactly `with tarfile.open(archive_path, 'r:gz') as tar: tar.extractall(path=dst_dir)` with no filter= or members= argument. Confirmed running Python 3.10.0 in this environment (python3 --version), where extractall's default is fully permissive with no warning (PEP 706's safe filter default starts in 3.14; even the DeprecationWarning was only added in 3.12). Repo-wide grep confirms zero production callers (only the test file references download_utils.*), matching the finding's own 'currently unreachable in practice' caveat -- so this is a real but latent path-traversal-class issue in dead code.",
+  "verified_by_execution": false
+ },
+ "misc-utils#04": {
+  "id": "misc-utils#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read download_url (download_utils.py:104-138): urllib.request.urlretrieve writes straight to dst_path with no checksum parameter, no pre-existing-file staleness check, and no try/except to remove a partial dst_path on failure -- confirmed exactly as described. Also confirmed egs3/mini_an4/asr/dataset/builder.py implements its own ad-hoc download via urllib.request.urlretrieve directly (line 125) rather than calling this helper, matching the finding's framing. Dead code today per grep (only test/espnet3/utils/test_download.py references it), so risk is latent, matching the finding's own caveat.",
+  "verified_by_execution": false
+ },
+ "misc-utils#05": {
+  "id": "misc-utils#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "grep -rn 'download_url|extract_targz|download_utils' across the repo confirms the only non-definition references are in test/espnet3/utils/test_download.py; egs2/owsm_v3 and espnet2 encoder files use unrelated torchaudio/torch.hub download symbols, not this module. Directly confirmed egs3/mini_an4/asr/dataset/builder.py:125 calls urllib.request.urlretrieve directly and extracts via `subprocess.run(['tar', '-xzf', ...])` (line 128-131) instead of espnet3.utils.download_utils, i.e. exactly the duplicated/divergent hand-rolled implementation the finding describes.",
+  "verified_by_execution": false
+ },
+ "misc-utils#06": {
+  "id": "misc-utils#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read test/espnet3/utils/test_download.py:60-108 directly: both test_extract_targz and test_extract_targz_accepts_none_logger monkeypatch download_utils.tarfile.open to return a DummyTar whose extractall(path) just records the path argument into a dict and does nothing else -- no real archive is ever built, opened, or extracted, and no assertion touches extracted file contents. Confirmed exactly as described.",
+  "verified_by_execution": false
+ },
+ "misc-utils#07": {
+  "id": "misc-utils#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "grep -n 'set_stage_log_handler' test/espnet3/utils/test_logging.py returns nothing, confirming zero direct references. Traced the only production caller: espnet3/utils/stages_utils.py:175 calls set_stage_log_handler directly (not through log_stage_metadata, which is a separate call at line 179), and the existing test test_log_stage_metadata_logs_configs (test_logging.py:186-214) calls elog.log_stage_metadata directly, never going through set_stage_log_handler or run_stages, so its rotation logic, `_espnet3_stage_log` marker-based handler replacement, and log_dir=None short-circuit are indeed untested by any existing test.",
+  "verified_by_execution": false
+ },
+ "misc-utils#08": {
+  "id": "misc-utils#08",
+  "verdict": "corrected",
+  "severity": "low",
+  "reasoning": "Confirmed writer_utils.py:219-240 writes np.save/sf.write/json.dump/pickle.dump directly to output_path with no temp-file+rename -- that part of the finding is accurate. But the specific claimed risk, 'downstream resume/idempotency logic that checks artifact-file-exists => already produced would silently reuse the corrupt file', does not exist in this codebase: traced the actual production idempotency mechanism in espnet3/parallel/base_runner.py -- resume is a shard-level 'done' sentinel file (_get_done_path) written only after the ENTIRE shard's item loop and finalize_state succeed (base_runner.py:376-392); is_shard_done/_filter_pending_shards never inspects individual artifact files. Any exception during a per-item write (json.dump on a non-serializable value, etc.) propagates straight out of _run_one_shard's try block -- InferenceRunner.forward also re-raises rather than swallowing (inference_runner.py:276-279) -- so 'done' is never written and the whole shard is guaranteed to be fully re-run on the next resume, and every artifact write call opens its target path in truncate/overwrite mode ('w'/'wb'), so a retry overwrites rather than reuses any truncated file from a prior crash. The residual risk is only a rare double-failure (hard power loss after the item loop finishes but before all artifact writes are fsynced to disk, coinciding with the done marker itself surviving) -- not the mid-write-crash-then-silent-reuse scenario originally described.",
+  "corrected_summary": "_write_builtin_artifact writes directly to output_path with no temp-file+rename, but this codebase's actual idempotency check is a shard-level 'done' sentinel written only after the full shard succeeds, so a mid-write crash/exception always forces a full shard re-run that overwrites (not reuses) any truncated artifact file; no downstream logic checks individual artifact-file existence.",
+  "corrected_scenario": "A crash mid-write (json.dump on a non-serializable value, or an external SIGKILL) leaves a truncated artifact file, but because base_runner.py only writes the shard's 'done' marker after every item in the shard finishes successfully, and any exception propagates out of _run_one_shard unlocked, the next run with resume enabled will not see 'done' and will re-run the whole shard, calling _write_builtin_artifact again on the same output_path -- which opens the file in write/truncate mode and overwrites the corrupt data. Real residual exposure is limited to non-fsync'd OS buffers surviving a hard power loss in the narrow window after the shard is marked done, not the general 'downstream resume silently reuses corrupt file' claim.",
+  "corrected_lines": "espnet3/utils/writer_utils.py:219-240 (write path); espnet3/parallel/base_runner.py:376-392 (done marker only written after full shard success, refuting the resume-reuse scenario)",
+  "corrected_fix": "If desired, still write to a temp sibling + os.replace() for defense-in-depth (e.g. protecting a final artifact from a same-shard OS-buffer-flush race), but this is now a low-severity hardening nice-to-have, not a resume-correctness bug, since the shard-level done marker already prevents corrupt files from being treated as complete.",
+  "verified_by_execution": false
+ },
+ "parallel#01": {
+  "id": "parallel#01",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read base_runner.py:336-355 directly: _filter_pending_shards loops over shards, calling self._try_lock_shard(shard_dir) for each, and on the first failure (shard already locked) raises RuntimeError immediately with no try/except/finally to unlock the shards already appended to `pending` in this same loop. Confirmed __call__ (base_runner.py:471) calls self._filter_pending_shards(shards) with no wrapping try/finally either, so the exception propagates all the way out leaving every previously-locked shard's lock file on disk (via _try_lock_shard's os.O_CREAT|O_EXCL at line 202-205, only removed by _unlock_shard, which is never called on this path). Confirmed the resume=False path is real and documented: espnet3/systems/tts/system.py:171-179 explicitly passes resume=False with a comment explaining why ('keep/drop decisions depend on duration'), which is exactly the configuration the finding says forces every shard to attempt a fresh lock regardless of prior done-markers, making the leak-on-partial-failure scenario reachable from a real recipe path, not contrived misuse.",
+  "verified_by_execution": false
+ },
+ "parallel#02": {
+  "id": "parallel#02",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified in base_runner.py: build_env_local/build_worker_setup_fn build env as {dataset, model} then env.update(self.params) (systems/base/inference_provider.py:105-114,171-177), so provider params land directly in the flat env dict. _run_local/_run_parallel_dask then do env.setdefault('output_dir', str(self.output_dir)) (base_runner.py:399, 426-428) which is a no-op if params already supplied 'output_dir'. _run_one_shard calls cls.init_state(shard_id=shard_id, **env) (line 383) and init_state (line 216) resolves shard_dir from env's output_dir -- the wrong directory -- while _filter_pending_shards/_get_completed_shard_dirs (lines 335-337, 359-365) resolve the lock/done paths from self.output_dir (the runner's real, correct directory). This produces exactly the described split: shard work + done marker land in the provider-supplied dir, the lock (created in the real output_dir before dispatch) is never removed because _unlock_shard is called on state['shard_dir'] (the wrong dir), and _get_completed_shard_dirs raises FileNotFoundError against the real (never-marked-done) dir. A provider param named 'shard_id' would indeed collide with the explicit shard_id=shard_id kwarg to init_state/reduce_state, raising TypeError. This requires a provider params key that happens to be one of the reserved bookkeeping names, a real but non-default misconfiguration.",
+  "verified_by_execution": false
+ },
+ "parallel#03": {
+  "id": "parallel#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified: _run_parallel_dask (base_runner.py:410-456) does `with get_client(par_config, setup_fn=setup_fn) as client:` per call. get_client (parallel.py ~316-355) always calls build_client(config) -> _build_client(config), which unconditionally constructs a brand-new cluster object per env type (LocalCluster/SLURMCluster/etc, parallel.py:141-166) -- there is no cache/singleton keyed by config despite the docstring claiming 'tied to the global singleton cluster'. The context manager's finally block always calls client.close() and cluster.close()/shutdown() (parallel.py:341-355), so every BaseRunner.__call__ that goes through the Dask path pays one full cluster allocation+teardown. Confirmed that run_inference (inference.py) instantiates a provider+runner per test set and calls runner(...) each time, so N test sets means N cluster lifecycles with a non-local env. This is a real design/perf issue, not a correctness crash in the default (local) path.",
+  "verified_by_execution": false
+ },
+ "parallel#04": {
+  "id": "parallel#04",
+  "verdict": "corrected",
+  "severity": "high",
+  "reasoning": "Confirmed verbatim: parallel.py:125-133 `set_parallel`: `if config is None: if parallel_config is not None: config = parallel_config else: config = OmegaConf.create({'env':'local',...})` -- so set_parallel(None) reuses the stale process-global when one exists. inference.py:89 calls exactly `set_parallel(getattr(config, 'parallel', None))`, so an inference config lacking a `parallel` key silently inherits whatever cluster config a prior stage set. Critically, this IS reachable from the documented/default multi-stage workflow: espnet3/utils/stages_utils.py's run_stages() (used by every egs3 TEMPLATE run.py) executes stage methods (e.g. collect_stats/train then infer) via getattr(system, stage) in one process, and training.py/tts/system.py use `if config.get('parallel'): set_parallel(config.parallel)` (training.py:54-55,82-83; tts/system.py:124-125,429-430) which also leaves the global untouched when a config omits 'parallel' -- so the leak persists across any stage transition, not just infer. Because this can silently make the inference stage dispatch shards against a leftover SLURM/dask config (unexpected job submission, wrong shard counts) instead of the local execution the (parallel-less) inference config implies, this is a distributed-config correctness bug in a realistic, documented staged-pipeline path, not just an edge case -- I'm upgrading severity from medium to high. Summary/scenario/lines are otherwise accurate as given.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null,
+  "verified_by_execution": false
+ },
+ "parallel#05": {
+  "id": "parallel#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified espnet3/parallel/inference_provider.py:70-84: build_worker_setup_fn defines `def setup(): env = {'dataset': self.build_dataset(config), 'model': self.build_model(config)}; ...; self._log_env(env)` -- three separate `self.` references inside the nested function, so `self` is genuinely a free variable of setup's closure and would be pickled with it if handed to a Dask WorkerPlugin. __init__ (line 32) does eagerly build `self._local_env = self.build_worker_setup_fn()()` on the driver. However, this is a different, unused module: grepping the repo shows the only importer of espnet3.parallel.inference_provider is its own test (test/espnet3/parallel/test_inference_provider.py:3), while the real pipeline (espnet3/systems/base/inference.py) instantiates espnet3.systems.base.inference_provider.InferenceProvider, whose build_worker_setup_fn (verified, lines ~135-152) uses `cls = self.__class__` and calls `cls.build_dataset(config)`/`cls.build_model(config)` with no `self` capture at all -- i.e. the actually-used provider does not have this bug. So the finding is real for the code it cites but is confined to dead/duplicate code not reachable from egs3 configs, matching the original finding's own caveat.",
+  "verified_by_execution": false
+ },
+ "parallel#07": {
+  "id": "parallel#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified inference_runner.py:129-136 stores self.idx_key/self.hyp_key/self.ref_key on the instance, but write_record is a @staticmethod (line ~296) whose idx_key/output_keys/hyp_key/ref_key params come solely from **env, and base_runner.py reduce_state calls `cls.write_record(state['_writers'], result, state, **env)` -- env, not self -- so instance attributes never reach it directly. Confirmed inference.py only duplicates idx_key and output_keys into provider_params (lines ~147-150: `provider_params['idx_key']=idx_key`, `provider_params['output_keys']=output_keys`) but never hyp_key/ref_key, even though runner_kwargs passes hyp_key=hyp_keys, ref_key=[] to the constructor (lines ~168-174). So in the shipped path write_record's hyp_key/ref_key args are always None, `_validate_output_with_keys` computes hyp_keys=[]/ref_keys=[] and the 'required keys' check degenerates to checking only idx_key (confirmed at inference_runner.py:161-174). Actual SCP field selection (_resolve_output_keys, used for writing) does still work correctly because it uses `output_keys` which IS correctly threaded through env -- so this doesn't silently corrupt the default recipe's outputs, but it does mean the documented hyp_key/ref_key validation is dead in the shipped path, and resolve_idx_key (confirmed only called from its own unit tests, grepped) is unreachable in production. Matches the original finding closely; design/docs-mismatch bug, medium severity is appropriate since actual output writing is unaffected.",
+  "verified_by_execution": false
+ },
+ "parallel#08": {
+  "id": "parallel#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Reproduced both failure modes directly: OmegaConf DictConfig.update() with a non-primitive value (e.g. a plain object standing in for a tokenizer) raises `omegaconf.errors.UnsupportedValueType: Value '...' is not a supported primitive type` even with no struct flag set, and update() on a struct-flagged config with a new key raises `ConfigKeyError: Key '...' is not in struct`. Verified inference_provider.py:91 `self.config.update(self.params)` runs unconditionally in __init__, and self.config is the caller's own object by reference (EnvironmentProvider.__init__ at env_provider.py: `self.config = config`, no copy) -- and inference.py passes the same shared `config` object as inference_config on every test-set loop iteration (`provider = instantiate(provider_config, inference_config=config, ...)` inside `for test_name in test_sets:`), so provider construction mutates the same object every iteration, consistent with the leak-across-iterations claim. The docstring's own example params ('device, tokenizer, beam size') would crash on the tokenizer case as shown. This is a real, easily reproduced docs/implementation mismatch; medium severity is reasonable since it only bites when params include a non-primitive value (uncommon in pure-YAML/Hydra-driven configs) rather than the default path.",
+  "verified_by_execution": true
+ },
+ "parallel#09": {
+  "id": "parallel#09",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified base_runner.py:60-73 Args docstring lists async_mode/async_specs_dir/async_num_workers/async_result_dir and mentions 'submitted via ``parallel_map``' at line 72, but the actual __init__ signature (lines 78-85) is `(provider, batch_size=None, output_dir=None, shard_subdir='', resume=True)` -- none of the docstring's async_* kwargs exist, so passing them raises TypeError. grep across the repo for `parallel_map` finds zero definitions anywhere in espnet3/ -- only doc/espnet3/parallel.md:78,86 (code sample calling it) and base_runner.py:72 (docstring) reference the name, confirming it is pure vaporware. Three TODO(Masao) markers confirmed present at base_runner.py:76, env_provider.py (build_env_local area), and systems/base/inference_provider.py:83, all promising documentation that doesn't exist. Straightforward, fully confirmed docs-mismatch.",
+  "verified_by_execution": false
+ },
+ "parallel#16": {
+  "id": "parallel#16",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified test/espnet3/parallel/test_inference_runner.py:297,331 both configs use `'env': 'local'`, and despite the filename, the file only imports `espnet3.parallel.base_runner.BaseRunner` and `espnet3.systems.base.inference_provider.InferenceProvider`, defining its own `class STFTRunner(BaseRunner)` (line 33) -- espnet3.systems.base.inference_runner.InferenceRunner is never imported or tested there. test/espnet3/parallel/test_inference_provider.py imports `espnet3.parallel.inference_provider.InferenceProvider` (the confirmed-unused duplicate from finding #05), not the real systems/base one. test_base_runner_batch.py's test_failed_shard_releases_lock (lines 333-351) calls runner([0,1]) with batch_size=2, which is exactly one batch/one shard (confirmed via _plan_shards: num_shards stays 1 for env='local' or when par_config is None), so a multi-shard lock-leak scenario (like the one in #02) would not be caught by this test. test_parallel.py (grepped) only defines tests around set_parallel/build_client/get_client/wrap_func directly, no BaseRunner integration. All claims verified as stated.",
+  "verified_by_execution": false
+ },
+ "publication#01": {
+  "id": "publication#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "Read packing.py:232-280: _link_local_model_into_bundle computes dest = demo_dir/'model_pack' and calls dest.symlink_to(candidate, target_is_directory=True) with no existence check on dest at all, and pack_demo (line 73) only does demo_dir.mkdir(parents=True, exist_ok=True) which never removes an existing model_pack symlink. Confirmed egs3/TEMPLATE/asr/conf/demo.yaml (unmodified) sets model.dir_or_tag: exp/${exp_tag}/model_pack and pack.out_dir: demo -- a sibling of exp/, so the model dir is outside demo_dir and the symlink branch is taken on every run. Reproduced in scratch: calling Path.symlink_to() twice on the same dest raises FileExistsError: [Errno 17] File exists, exactly as claimed. Scenario (re-running pack_demo, a normal operation after retraining or a config tweak) is realistic and reachable from the default TEMPLATE, not contrived misuse.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "publication#02": {
+  "id": "publication#02",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read inference_model.py:390-530. forward()'s signature is (self, sample, idx=0, **extra_kwargs) and it passes model_kwargs=extra_kwargs to runner_cls.forward (line ~429), exactly matching the docstring's 'e.g. beam_size for demo overrides' claim. forward_batch()'s signature is (self, samples, indices=None) with no **extra_kwargs, and neither the batched call site nor the per-sample fallback loop inside it passes any model_kwargs to runner_cls.forward -- both omit the keyword entirely. This is a genuine, verifiable API asymmetry with no workaround at the batch level other than dropping to manual per-sample forward() calls, matching the finding exactly.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "publication#03": {
+  "id": "publication#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read publication_utils.py:548-569 (pack_model): out_dir is computed from pack_cfg.out_dir (defaulting to exp_dir/'model_pack') and resolved, then `if out_dir.exists(): if not allow_overwrite: raise; shutil.rmtree(out_dir)` runs with zero comparison to recipe_root or exp_dir anywhere in the function (grep for recipe_root/exp_dir usage confirms no such guard exists). Confirmed the TEMPLATE default (egs3/TEMPLATE/asr/conf/publication.yaml:55-56) sets out_dir: ${exp_dir}/model_pack, a subdirectory, so the dangerous case requires a user to explicitly override out_dir to exp_dir itself (or an ancestor) plus allow_overwrite: true -- a real but non-default misconfiguration, consistent with test_pack_model_allow_overwrite_clears_stale_files (test_publish.py:357-364) only ever exercising a disjoint out_dir. Design gap is real; severity kept at medium given it requires deliberate misconfiguration away from the documented default rather than being reachable from stock templates.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "publication#04": {
+  "id": "publication#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read pack_demo (packing.py:27-94) end to end: the only directory-prep step is demo_dir.mkdir(parents=True, exist_ok=True) (line 73); _write_requirements, _copy_pack_includes, _setup_demo_assets and _write_demo_readme (bodies read at lines 193-450) only ever write/overwrite files they know about and never delete or clear anything from demo_dir. This is a real, verifiable contrast with pack_model's rmtree-on-overwrite semantics (publication_utils.py:562-568), so files removed from pack.include or a stale assets/ subtree genuinely persist silently across re-packs into the same out_dir, exactly as described.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tq-A#02": {
+  "id": "tq-A#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Read DummyDataset.__getitem__ (test_collect_stats.py:69-75): it returns (uid, dict) iff self.use_espnet_preprocessor, else dict -- gated on use_espnet_preprocessor, exactly as claimed. Read the real CombinedDataset.__getitem__ (espnet3/components/data/dataset.py:181-213): the (uid, transformed) tuple is returned iff self.use_espnet_collator, a wholly separate flag from use_espnet_preprocessor (which only controls whether the preprocessor callable receives (uid, sample) vs (sample)). Read collect_stats_batch (collect_stats.py:38-47): it unpacks `uid, sample = item` iff hasattr(dataset,'use_espnet_preprocessor') and dataset.use_espnet_preprocessor -- the same wrong flag the fake dataset mirrors. Confirmed the test parametrization (test_collect_stats.py:236,250 and others) always uses make_dataloader_cfg(use_custom_collate=True) (a non-CommonCollateFn DummyCollate) crossed with use_espnet_preprocessor in [True, False] -- exactly the combination where real CombinedDataset would set use_espnet_collator=False (custom collate_fn) regardless of use_espnet_preprocessor, so the real dataset would never emit a tuple, while collect_stats_batch assumes it does whenever use_espnet_preprocessor=True. Because DummyDataset encodes the same (wrong) gate as production code instead of the real use_espnet_collator-based contract, no parametrization of this fake can ever expose the mismatch. Verified without execution by direct code reading of both the real contract and the test double.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tq-A#03": {
+  "id": "tq-A#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read collect_stats.py:548-554: `if mode_config is not None and hasattr(mode_config, 'multiple_iterator'): raise RuntimeError(...)` -- hasattr only checks attribute presence, not truthiness, so an explicit multiple_iterator: false is rejected identically to true (Python's hasattr semantics confirm this directly, no need to execute). Confirmed test_collect_stats.py:444-451 parametrizes flag over [True, False] and both raise RuntimeError with match='multiple_iterator', i.e. the test suite documents this as intentional for both values, exactly as the finding states. Also confirmed the identical hasattr pattern exists at dataloader.py:196 for the training path, making it a systemic convention as claimed.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tq-B#01": {
+  "id": "tq-B#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "grep -rn '_run_parallel_dask' across espnet3/ and test/ only matches the definition and its two call sites inside base_runner.py itself (line 410 def, line 478 call) -- never a test file. Further grep across test/espnet3/parallel/*.py and test/espnet3/systems/base/test_inference_runner.py for any non-'local' env value found none; every parallel test config in scope hardcodes env: 'local'. Confirmed the dispatch logic at base_runner.py:473-478 (`if par_config is None or getattr(par_config,'env','local')=='local': self._run_local(pending) else: self._run_parallel_dask(pending)`) means every existing test necessarily takes the local branch and never reaches _run_parallel_dask, including its client.cancel(futures) cleanup path. This is a real, verifiable test gap on a nontrivial distributed code path.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tq-B#02": {
+  "id": "tq-B#02",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read _plan_shards (base_runner.py:283-290): `num_shards = 1; if par_config is not None and env not in ('local',): num_shards = int(getattr(par_config, 'n_workers', 1))` -- for env=='local', num_shards is hardcoded to 1 regardless of any configured n_workers value, exactly as claimed. Confirmed _run_local (base_runner.py:396-408) is a plain sequential tqdm loop over shards with no thread/process pool, so with n_chunks=1 all items run strictly sequentially on the driver. Grepped base_runner.py and parallel.py for any warning/log referencing n_workers together with env=='local' and found none -- the mismatch is genuinely silent. Real, verifiable design gap.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tq-B#03": {
+  "id": "tq-B#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed by reading base_runner.py:283-290 (num_shards = n_workers is only applied when env not in ('local',); for env='local' the shard count stays at the default of 1) and base_runner.py:475 (env=='local' routes to _run_local). test_inference_runner.py:291-303 and :325-337 set env='local' with n_workers=2/3, and lines 317/351 assert only len(shard_dirs) >= 1. This assertion is satisfied trivially by the single split.0 shard that env='local' always produces, so these tests would pass unchanged with n_workers removed and give zero coverage of _plan_shards' multi-shard branch or the Dask dispatch path.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#01": {
+  "id": "trainer-callbacks#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed against the installed lightning source: callback_connector.py's on_trainer_init calls `_reorder_callbacks`, whose own comment says 'push all model checkpoint callbacks to the end ... it is important that these are the last callbacks to run' (site-packages/lightning/pytorch/trainer/connectors/callback_connector.py:240-263). default_callbacks.py builds the list as [last_ckpt, *best_ckpt_callbacks, ave_ckpt_callback, lr_callback, MetricsLogger, progress_bar] (lines 504-511); after reordering, AverageCheckpointsCallback (not a Checkpoint subclass) runs before every ModelCheckpoint in on_validation_end. Since best_ckpt_callbacks use save_on_train_epoch_end=False (line 489), their checkpoint-saving/best_k_models update happens in ModelCheckpoint.on_validation_end (model_checkpoint.py:501), i.e. after averaging already ran off the stale best_k_models. egs3/TEMPLATE and all mini_an4 configs confirm best_model_criterion defaults to [('valid/loss',3,'min')] and max_epochs=1 for mini_an4, so with the default template the averaged file for the final validation is always one step stale (and for mini_an4 specifically, no ave_1best.pth is ever written, since best_k_models is still empty when the only validation's on_validation_end fires). egs3/librispeech_100/asr/conf/inference.yaml:61 does hardcode valid.acc.ave_10best.pth, so a full run relying on this path would crash/miss the intended checkpoint content.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#02": {
+  "id": "trainer-callbacks#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed. ema.py:130-136 swaps EMA weights in on_validation_start and restores online weights in on_validation_end; because EMACallback is not a Checkpoint subclass it is NOT moved to the end by lightning's _reorder_callbacks, so it still runs (and restores online weights) before the ModelCheckpoint.on_validation_end hooks that actually persist the best-k checkpoints from pl_module's current (now-online) state_dict. Independently, checkpoint_connector.py:453-509 shows `if not weights_only: call._call_callbacks_on_save_checkpoint(...)`, and the best_ckpt_callbacks in default_callbacks.py use save_weights_only=True (line 490) -> trainer.save_checkpoint(filepath, self.save_weights_only=True) -> callbacks' on_save_checkpoint (where EMACallback would inject ema_model_state_dict) is skipped entirely for those saves. Both mechanisms independently confirm the claim: best-k checkpoints are selected by an EMA-computed metric but persist online weights with no EMA state, exactly as described.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#03": {
+  "id": "trainer-callbacks#03",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed against trainer.py:96-106 (callbacks = get_default_callbacks(...) unconditionally, config.callbacks only appended, no per-callback disable) and the installed lightning source: lr_monitor.py's on_train_start raises MisconfigurationException('Cannot use `LearningRateMonitor` callback with `Trainer` that has no logger.') whenever `not trainer.loggers` (confirmed exact text at lightning/pytorch/callbacks/lr_monitor.py:121-124); callback_connector.py's _configure_progress_bar raises MisconfigurationException naming the offending progress-bar class whenever enable_progress_bar=False but a ProgressBar callback is present (lines 132-150); an analogous check exists for enable_checkpointing=False vs ModelCheckpoint (lines 91-98). Since ESPnet3's default callbacks always include LearningRateMonitor, TQDMProgressBar, and ModelCheckpoint instances, any of trainer.logger=false / trainer.enable_progress_bar=false / trainer.enable_checkpointing=false (all ordinary, documented lightning.Trainer options) crash at startup as described, and the duplicate-LearningRateMonitor behavior is directly codified by test_duplicate_learning_rate_monitor_from_config.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#04": {
+  "id": "trainer-callbacks#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed. egs3/TEMPLATE/asr/conf/training.yaml places `init:` at the top level (line 204), before the `trainer:` block (line 261) -- i.e. as a sibling of `trainer:`, not nested inside it. training.py's _build_trainer passes `config=config.trainer` to ESPnet3LightningTrainer (training.py:34), and trainer.py:74 reads `getattr(self.config, 'init', None)` where self.config IS config.trainer -- so the documented top-level `init:` key is never seen by the code that consumes it, and initialize() silently never runs. Conversely, if a user instead nests `init` under `trainer:`, trainer.py:141-149's deletion list (accelerator, strategy, logger, profiler, plugins, callbacks) does not include 'init', so it survives into trainer_config and is forwarded to `lightning.Trainer(**trainer_config)`, which has no such kwarg and would raise TypeError.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#05": {
+  "id": "trainer-callbacks#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed. training.py's train() (lines 76-106) builds fit_kwargs only from config.fit and never sets ckpt_path; grepping espnet3/ for ckpt_path/resume outside of ema.py/base_runner.py comments and TTS-duration-cache resume (unrelated) turns up no train-resume logic. default_callbacks.py:467-474 configures the last-checkpoint ModelCheckpoint with save_last='link' and leaves enable_version_counter at its lightning default of True; model_checkpoint.py:906-919 (_save_last_checkpoint) shows the version-bump loop runs whenever the target filepath already exists on disk and differs from self.last_model_path, and a freshly constructed ModelCheckpoint (no restore, since no ckpt_path was passed) starts with last_model_path=''. So re-running `train` into a populated exp_dir does produce last-v1.ckpt while last.ckpt keeps pointing at the prior run, exactly as claimed. egs3/TEMPLATE/asr/conf/publication.yaml:69-73 confirms the exclude list has only the literal 'last.ckpt' entry (no glob), so last-v1.ckpt is not excluded from the bulk copy in pack_model.",
+  "verified_by_execution": false
+ },
+ "trainer-callbacks#06": {
+  "id": "trainer-callbacks#06",
+  "verdict": "corrected",
+  "severity": "low",
+  "reasoning": "The exact claimed mechanism does not hold. dataloader.py's build() (around line ~197-207) accesses `config.iter_factory` directly with no hasattr guard; interactively confirmed with OmegaConf that when a key is entirely absent from a plain (non-struct) DictConfig, both `hasattr(cfg, key)` is False AND `cfg.key` raises `omegaconf.errors.ConfigAttributeError` immediately. So a dataloader.train block that omits `iter_factory` entirely would crash inside build() before any DataLoader is constructed -- it cannot silently proceed to the 'never rotates' scenario described. The only way to functionally reach the standard-DataLoader branch (iter_factory evaluating to None) without crashing is to keep the `iter_factory:` key present with a null value, which is exactly what DataLoaderBuilder's own docstring recommends ('iter_factory: # Set iter_factory to None'). I confirmed interactively that OmegaConf's hasattr returns True for a key present with value None (hasattr checks key presence, not truthiness) -- so trainer.py's `hasattr(self.model.config.dataloader.train, 'iter_factory')` check still fires in that case, and reload_dataloaders_every_n_epochs is still forced to 1. The claimed 'shard never rotates across epochs' outcome is therefore unreachable via any config that actually runs.",
+  "corrected_summary": "reload_dataloaders_every_n_epochs is correctly forced to 1 for any dataloader.train config that actually functions (whether or not it uses iter_factory), because reaching the standard-DataLoader branch without a crash requires keeping the `iter_factory:` key present (set to null), and OmegaConf's hasattr is keyed on presence, not value. A narrower, currently-unreached gap remains: `use_distributed_sampler` is forced to False only via `self.model.is_espnet_sampler` (true solely for the iter_factory/ESPnet-sampler path), not by the presence of total_shards/dist_world_size, so a standard-DataLoader dataloader combined with total_shards>1 and a real multi-GPU distributed strategy would still have Lightning wrap it in an additional DistributedSampler on top of the manual shard rotation.",
+  "corrected_scenario": "No shipped egs3 config combines total_shards>1 with the standard-DataLoader (no-iter_factory) path today -- every config that sets total_shards also sets iter_factory (egs3/TEMPLATE/asr/conf/training.yaml and egs3/mini_an4/asr/conf/training_asr_streaming.yaml, both with iter_factory present at the same nesting level). The residual concern about use_distributed_sampler double-subsampling therefore has no current reachable path in this repo's example configs; it would need a hand-authored config combining total_shards>1, dist_world_size>1, a real distributed strategy, and iter_factory:null.",
+  "corrected_lines": "espnet3/components/trainers/trainer.py:113-138; espnet3/components/data/dataloader.py:140-141,197-217 (config.iter_factory accessed without a hasattr guard)",
+  "corrected_fix": "No fix is needed for the reload-forcing mechanism as originally described. If the narrower use_distributed_sampler gap is worth closing, force use_distributed_sampler=False whenever the dataset exposes total_shards, independent of is_espnet_sampler/iter_factory.",
+  "verified_by_execution": true
+ },
+ "trainer-callbacks#07": {
+  "id": "trainer-callbacks#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed. test_callback.py:76-78 mock.patch('torch.load', return_value=dummy_state_dict) and mock.patch('torch.save'), with trainer=mock.Mock() and best_ckpt_callbacks=[mock.Mock(best_k_models={...}, monitor='valid/loss')] -- best_k_models is injected directly rather than produced by a real ModelCheckpoint, so hook-ordering effects are structurally invisible to this test. test_ema.py:247-248 confirms _make_trainer returns a SimpleNamespace, not a lightning.Trainer, so EMACallback's tests likewise cannot observe real callback ordering. test_callback.py:386-414 (test_duplicate_learning_rate_monitor_from_config) explicitly asserts 2 LearningRateMonitor instances with the comment 'because no deduplication or warning is implemented yet', codifying the duplication bug as expected behavior. Additionally verified that Lightning's Callback base class (site-packages/lightning/pytorch/callbacks/callback.py) has no `on_after_optimizer_step` hook (only on_before_optimizer_step/on_before_zero_grad exist), yet test_logging_callback.py:52 calls `callback.on_after_optimizer_step(trainer, model)` directly on MetricsLogger -- this method exists on the class but Lightning will never call it during real training, so MetricsLogger's optim_step_time metric is dead in production despite being 'tested' here, which is a further concrete example supporting the finding's core claim that these tests give false confidence about real training behavior.",
+  "verified_by_execution": false
+ },
+ "tts-system#01": {
+  "id": "tts-system#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "TTSSystem.collect_stats (system.py:492-499) calls _build_trainer(self.training_config) without popping model.normalize/normalize_conf, unlike base collect_stats (training.py:62-65). Chased the model-build path: espnet3's get_espnet_model (task_utils.py:39-53) calls ez_task.build_model(Namespace(**default_config)) directly -- it does NOT go through espnet2 abs_task.main()'s 'extract_feats_in_collect_stats' skip-model-building branch (abs_task.py:1406-1414), so TTSTask.build_model always runs. In espnet2/tasks/tts.py:306-308, whenever args.normalize is not None (default ClassChoices value is 'global_mvn'), normalize_class(**args.normalize_conf) is constructed eagerly, and GlobalMVN.__init__ (espnet2/layers/global_mvn.py) does `np.load(stats_file)` in the constructor itself -- before any stats exist. Confirmed egs2/TEMPLATE/tts1/tts.sh:733-735 passes --normalize none/--pitch_normalize none/--energy_normalize none specifically for its collect_stats invocation and only uses the real normalizer for the later train step (tts.sh:977), i.e. the canonical espnet2 pipeline works around exactly this chicken-and-egg problem, and TTSSystem.collect_stats has no equivalent override for the global_mvn-with-stats_file case. The docstring (system.py:460-484) only discusses and fixes the F5-style `normalize: null` case; it does not mention or handle the canonical global_mvn+stats_file shape at all, so the fix is real but incomplete. No shipped TTS recipe in this repo tree yet exercises this (only egs3/TEMPLATE/tts/conf/training.yaml with everything null), so this is a realistic-but-not-yet-triggered-by-shipped-config path, matching 'high' rather than 'critical'.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tts-system#03": {
+  "id": "tts-system#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Read system.py:363-371 in the current tree: `line = line.rstrip(); parts = line.split('\\t'); text = parts[2]` with no length guard. Compared to RemoveLongShortProvider._load_entries (remove_long_short_provider.py:83-108), which explicitly documents 'Blank lines are skipped' and guards `if len(parts) < 3 or parts[2].strip() == '': n_dropped_empty += 1; continue`, and to the vocab_builder branch in the same file (system.py:308-309) which does `if len(parts) > 2 and parts[2].strip():`. Ran the exact repro manifest (`u1\\t/x.wav\\tab\\tspk\\n\\nu2\\t/y.wav\\tcd\\tspk\\n`) through the same three lines of logic in the scratch dir: blank line -> parts=[''] -> IndexError('list index out of range') confirmed. The same manifest is exactly what remove_long_short's own _load_entries tolerates (skips as empty), so create_token_list is inconsistent with its sibling code paths on the identical manifest shape, crashing with no file/line context.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tts-system#04": {
+  "id": "tts-system#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Confirmed BaseSystem.__init__ (base/system.py:91-99) has an explicit, non-kwargs signature including `stage_log_mapping: dict | None = None`; ASRSystem.__init__ (asr/system.py:34-65) mirrors that signature exactly and merges its default via `stage_log_mapping={'train_tokenizer': ..., **(stage_log_mapping or {})}`. TTSSystem.__init__ (system.py:41-58) instead takes `**kwargs` and calls `super().__init__(..., stage_log_mapping={...}, **kwargs)` with no merge. Reproduced the exact multiple-values collision with a minimal analog (inner(a=1, stage_log_mapping={...}, **kwargs) called as outer(stage_log_mapping={'y':2})) -> `TypeError: got multiple values for keyword argument 'stage_log_mapping'`, matching the described failure precisely. This is reachable only through a caller/subclass explicitly passing stage_log_mapping to TTSSystem (no egs3 template does this), so it is a real API-divergence/misuse-path bug, not a default-path crash -- medium fits (design debt with a concrete misuse path).",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tts-system#05": {
+  "id": "tts-system#05",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed system.py:174-180 hard-codes `resume=False` for RemoveLongShortRunner. Read base_runner.py: `_filter_pending_shards` (lines 336-356) calls `_try_lock_shard` unconditionally regardless of `self.resume`, and the only path that tolerates a lock-acquire failure is `if self.resume and self.is_shard_done(shard_dir): continue` (line 348) -- with resume=False this guard is always False, so a pre-existing lock file immediately raises `RuntimeError('Shard is already locked by another runner: ...')` (line 350-352) with no mention of the lock file path or that resume=False makes the stage safe to just retry after clearing it. `_run_one_shard`'s `finally: cls._unlock_shard(shard_dir)` (lines 380-394) only runs on a normal Python-level exception, not a SIGKILL/OOM-kill/preempted-worker death, so a hard-killed run genuinely leaves `shards/<split>/lock` behind and every subsequent re-run of the stage is blocked by a misleading error until a human manually finds and deletes the lock file. This is a real distributed/idempotency bug (a stage that is supposed to be safely re-runnable after a crash is not), so I bumped severity from the original 'medium' to 'high' per the rubric that explicitly buckets distributed/idempotency bugs as high; nothing else about the summary/scenario/lines needs correction.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tts-system#06": {
+  "id": "tts-system#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Confirmed system.py:145-149 (manifest_path default `data/manifest/{split}.tsv`, filtered output written to `save_path / manifest_path.name`) and system.py:284-286 (create_token_list's own manifest_path defaults to the same unfiltered `data/manifest/train.tsv`, independent of any remove_long_short.save_path). Ran `grep -rn remove_long_short` across espnet3/ and egs3/: the only hits are system.py itself and remove_long_short_provider.py/remove_long_short_runner.py -- no dataset loader, DataOrganizer, or config resolver reads `remove_long_short.save_path` or a filtered manifest anywhere. Checked BaseSystem.create_dataset (base/system.py:240-276): it iterates dataset_config.train/valid/test entries and builds/prepares datasets by data_src reference with no post-filter hook. So a recipe that enables remove_long_short and does not also manually repoint create_token_list.manifest_path and every dataset entry's data_src_args at the filtered directory will silently train/build the token list on the unfiltered manifest, with no warning anywhere in the code that this has happened. Confirmed as described; medium fits (design debt with a concrete, realistic misuse path, not a crash).",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "tts-system#07": {
+  "id": "tts-system#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Verified OmegaConf DictConfig.get(key, default) matches plain dict.get semantics: `OmegaConf.create({'splits': None}).get('splits', [...])` returns None, not the default (tested directly in the scratch dir), so `for split in splits` at system.py:142 raises `TypeError: 'NoneType' object is not iterable` exactly as claimed when `remove_long_short.splits: null` is set. Verified `build_tokenizer` (espnet2/text/build_tokenizer.py) is decorated `@typechecked` with `token_type: str` (non-Optional), so create_token_list_config.get('token_type', 'char') returning None for an explicit `token_type: null` raises a typeguard TypeCheckError at the build_tokenizer(...) call (system.py:333/350-359), matching the claim. `add_symbol: null` -> `add_symbol + add_nonsplit_symbol` at system.py:388 becomes `None + [...]`, a TypeError; `cutoff: null` -> `x[1] > cutoff` at system.py:377 becomes `int > None`, also a TypeError in Python 3. All four sub-claims check out against current code and library semantics. The reviewer's own note that this is a 'hypothetical config, no shipped TTS recipe' is accurate and already reflected in the medium severity (edge case / design gap, not a default-path crash) -- kept as-is.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "base-inference#11": {
+  "id": "base-inference#11",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "egs3/TEMPLATE/asr/conf/inference.yaml:66 leaves `test:` blank and line 79 leaves `model:` blank. In espnet3/systems/base/inference.py:92, `for index, test_set in enumerate(config.dataset.test):` is the first executable statement in infer() (after set_parallel) with no None-check, so a null dataset.test raises a bare `TypeError: 'NoneType' object is not iterable` immediately, before any of the later input_key/provider validation. Verified separately that hydra.utils.instantiate(None) returns None (no error) -- confirmed live via a small snippet in this session -- so build_model with a null `model:` silently returns None instead of raising, and the failure only surfaces later at inference_runner.py:257 `model_output = model(**inputs_dict, **model_kwargs)` as `TypeError: 'NoneType' object is not callable`, deep in the per-shard worker loop as claimed. Confirmed real recipes (mini_an4, librispeech_100) do override both `dataset:` and `model:` in their own inference.yaml, so this is specifically a TEMPLATE copy-paste/robustness gap, matching the original medium severity."
+ },
+ "base-inference#12": {
+  "id": "base-inference#12",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "egs3/TEMPLATE/tts/conf/inference.yaml:15 `dataset:` is entirely blank, unlike ASR TEMPLATE which ships a `_target_`/`_recursive_`/`test`/`preprocessor` skeleton (asr inference.yaml:62-67). Verified live in this session: `instantiate()` on a plain dict/DictConfig lacking `_target_` does NOT raise -- it just returns the DictConfig unchanged (hydra.utils.instantiate returns the input as-is when no _target_ key is present). So build_dataset's `organizer = instantiate(config.dataset)` (inference_provider.py:207-212) silently produces the raw config instead of a DataOrganizer, and the subsequent `organizer.test[test_set]` then fails because `organizer.test` is a ListConfig being indexed with a string test-set name, raising exactly `omegaconf.errors.KeyValidationError: ListConfig indices must be integers or slices, not str` -- reproduced verbatim in this session, matching the original reviewer's cited error. No actual TTS recipe exists yet under egs3 besides TEMPLATE itself, so the misuse path is currently hypothetical/forward-looking rather than demonstrated by a real recipe, consistent with the original reviewer's own hedged 0.55 confidence and medium severity."
+ },
+ "base-pipeline#01": {
+  "id": "base-pipeline#01",
+  "verdict": "confirmed",
+  "severity": "critical",
+  "reasoning": "training.py:62-65 does `if \"normalize\" in config.model: config.model.pop(\"normalize\")` / same for normalize_conf, operating directly on the config object passed in, with no copy. system.py:294 calls `collect_stats(self.training_config)` and system.py:309 calls `train(self.training_config)` -- the identical DictConfig object both times, and OmegaConf DictConfig.pop mutates the shared node in place (verified live in this session with a minimal snippet: popping 'normalize' from a nested config.model inside a helper function removes it from the caller's original object). Confirmed egs3/TEMPLATE/asr/run.py:27-36 DEFAULT_STAGES runs create_dataset, train_tokenizer, collect_stats, train, ... in one process against one System instance when --stages is omitted (the default invocation), so this is squarely the default recipe path, not a contrived one. Also confirmed via espnet2/tasks/asr.py:120-128 that `normalize_choices` has `default=\"utterance_mvn\"`, and args.normalize is consulted at asr.py:558-561 -- so when the `normalize` key is entirely absent from model config (as it is after the pop), ESPnet2's arg parser silently falls back to UtteranceMVN instead of the user-configured GlobalMVN, exactly as the original reviewer's live-verified `type(m.normalize).__name__ == \"UtteranceMVN\"` result showed. This is silently wrong training with no error, matching original critical severity."
+ },
+ "base-pipeline#02": {
+  "id": "base-pipeline#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "metric.py:24 `inference_dir = Path(metrics_config.inference_dir)` uses plain attribute access with no default/get(); confirmed live that OmegaConf raises `ConfigAttributeError: Missing key inference_dir` (which subclasses AttributeError, so the earlier `getattr(dataset, \"test\", None)`-style calls at lines 18-19 correctly return None/empty rather than raising, funneling execution into this exact line). run_utils.py:16-19 confirms `_TRAINING_CONTEXT_KEYS = (\"exp_tag\", \"exp_dir\")` -- no inference_dir -- and the inference_dir copy from inference_config to metrics_config only fires at run_utils.py's `if inference_config is not None and metrics_config is not None:` block, i.e. only when --inference_config is also supplied. Confirmed egs3/librispeech_100/asr/conf/metrics.yaml:4-7 documents 'Common usage: --training_config ... --metrics_config ...' (no --inference_config) verbatim, and confirmed egs3/librispeech_100/asr/readme.md:20-22 documents the identical invocation, and neither TEMPLATE's nor librispeech's metrics.yaml defines any inference_dir default (TEMPLATE only comments about it). So the exact documented 'Common usage' command crashes with an unqualified ConfigAttributeError."
+ },
+ "base-pipeline#03": {
+  "id": "base-pipeline#03",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "egs3/TEMPLATE/asr/conf/demo.yaml:4-6 documents 'Quick usage: python run.py --stages pack_demo --demo_config conf/demo.yaml' (no --training_config), and line 26 sets `dir_or_tag: exp/${exp_tag}/model_pack` with no `exp_tag:` key defined anywhere else in the file (confirmed via grep -- unlike inference.yaml/metrics.yaml which both explicitly declare a blank `exp_tag:` placeholder). Confirmed run.py:100-160 shows `apply_training_experiment_context` only copies exp_tag into demo_config `if training_config is not None:` (run_utils.py:351-388), `validate_experiment_context` (run_utils.py:415+) takes only training/inference/metrics_config -- no demo_config -- so nothing validates demo's experiment identity, and `resolve_loaded_configs` unconditionally calls `OmegaConf.resolve(demo_config)` for every non-None config. Verified live in this session: `OmegaConf.resolve()` on a config containing `${exp_tag}` with no exp_tag key anywhere raises exactly `InterpolationKeyError: Interpolation key 'exp_tag' not found`. Confirmed mini_an4/asr/run.py imports and calls TEMPLATE's `main()` unmodified and mini_an4's own demo.yaml does not define exp_tag or dir_or_tag either, so the merged default from TEMPLATE (which does define dir_or_tag with the interpolation) is what's active for real recipes following the documented Quick usage."
+ },
+ "base-pipeline#04": {
+  "id": "base-pipeline#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed logging_utils.py:270-283: `def set_stage_log_handler(log_dir, filename): ... if log_dir is None: return None` occurs textually and logically before the stale-handler removal loop (`for handler in list(root.handlers): if getattr(handler, \"_espnet3_stage_log\", False): root.removeHandler(handler); handler.close()`), so passing log_dir=None skips cleanup entirely. Confirmed stages_utils.py:164-167: for stage==\"train\" with the default stage_log_mode==\"rank0\" and rank!=0, log_dir is forced to None before calling set_stage_log_handler(None, ...) -- while collect_stats (which runs earlier in the same process, per DEFAULT_STAGES) is not rank-gated and always installs a real file handler for every rank. So on non-zero ranks, the collect_stats file handler is never detached and keeps absorbing every subsequent log record (including the entire train stage's output) for the rest of the process, and its file handle is never closed. This is a real but narrow (multi-rank distributed default-mode logging) defect -- misdirected/leaked log output, not data corruption -- consistent with medium severity."
+ },
+ "base-pipeline#05": {
+  "id": "base-pipeline#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed stages_utils.py: `fn = getattr(system, stage, None)` and `fn()` is called with zero arguments (no *args/**kwargs ever passed through from run_stages), and the try/except wraps that exact zero-arg call: `try: fn() except TypeError as e: ... raise TypeError(f\"Stage '{stage}' does not accept CLI arguments; put all settings in the YAML config.\") from e`. Confirmed system.py:190-197 `_reject_stage_args` only raises when `args or kwargs` is truthy -- but since run_stages always invokes `fn()` with no arguments, `_reject_stage_args` can never actually fire from this call path, meaning the 'does not accept CLI arguments' framing in run_stages' except clause is effectively always a mischaracterization of whatever TypeError actually occurred (a bad hydra instantiate() signature, a broken metric/dataset builder, etc. deep inside the stage). This is confirmed exactly as described by direct code reading; no execution needed to settle it."
+ },
+ "base-pipeline#06": {
+  "id": "base-pipeline#06",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed system.py:131-140 `base_mapping` maps both \"pack_demo\" and \"upload_demo\" to `demo_config.pack.out_dir`. Confirmed packing.py:69-90 pack_demo() resolves `demo_dir` from that same `pack.out_dir` and calls `_write_requirements(updated_cfg, demo_dir)` (curated list from `pack.requirements`) into it, and packing.py:146-184 upload_demo() resolves the identical `demo_dir` and calls `api.upload_folder(..., folder_path=str(demo_dir), ...)` with no exclusion of *.log or requirements.txt. Confirmed logging_utils.py:396-415 `_write_requirements_snapshot` resolves `log_dir` from the currently active stage FileHandler and unconditionally overwrites `log_dir/requirements.txt` with a full pip-freeze dump, and confirmed log_stage_metadata (which triggers this snapshot when --write_requirements is set) is invoked from stages_utils.py *before* `fn()` runs for each stage -- so for the upload_demo stage specifically, the pip-freeze requirements.txt overwrite happens before upload_demo()'s own upload_folder() call, meaning the curated requirements.txt that pack_demo() wrote gets clobbered with a full local pip freeze immediately before it is shipped to the Hugging Face Space, and both stage .log files are also shipped since upload_folder has no filter. This matches the original reviewer's live-verified evidence."
+ },
+ "base-pipeline#07": {
+  "id": "base-pipeline#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Reproduced exactly. config_utils.py:151-156 registers each resolver with `OmegaConf.register_new_resolver(...)` then calls the bare module-level `logging.info(f\"Registered ESPnet-3 OmegaConf Resolver: {name}\")` at import time, for name in OMEGACONF_ESPNET3_RESOLVER (4 entries). A fresh interpreter with `root.handlers == []` before the import ends up with `[<StreamHandler <stderr>>]` immediately after `import espnet3.utils.config_utils` -- this is `logging.info`'s documented auto-`basicConfig()` side effect when the root logger has no handlers. `configure_logging()` (logging_utils.py:226-234) then runs its guard `if not any(isinstance(h, logging.StreamHandler) for h in root.handlers): ...` which is satisfied by the pre-existing basicConfig handler, so it never installs its own LOG_FORMAT-formatted handler. I verified live: after calling `configure_logging(log_dir=None)`, `root.handlers` still contains exactly the one basicConfig StreamHandler whose `formatter._fmt` is `'%(levelname)s:%(name)s:%(message)s'`, not LOG_FORMAT. Since every run.py entrypoint imports config_utils (directly or transitively) before configure_logging() runs, this fires on every real run. Medium severity is right: it degrades console log formatting (loses hostname/timestamp/stage prefix) but doesn't corrupt data, crash, or affect file logging."
+ },
+ "base-pipeline#08": {
+  "id": "base-pipeline#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Reproduced exactly, including the docstring's own literal example. `_has_exp_identity(OmegaConf.create({\"exp_dir\": \"${exp_tag}/foo\"}))` raises `InterpolationKeyError: Interpolation key 'exp_tag' not found` (config.get('exp_dir') at run_utils.py:79 resolves interpolations by default), and `validate_experiment_context(training_config=None, inference_config=that_cfg, metrics_config=None, stages_to_run=['infer'])` propagates the same raw InterpolationKeyError instead of its own documented ValueError. I confirmed the reachability caveat the original reviewer already flagged is accurate: egs3/TEMPLATE/asr/conf/inference.yaml:22 and metrics.yaml:27 both declare `exp_tag:` as a present-but-None key, and mini_an4 doesn't override it, so normal TEMPLATE-derived recipes never hit this (exp_tag resolves to the string 'None', which the `\"None\" not in exp_dir` check on line 82 catches cleanly without raising). The crash needs a hand-authored standalone inference/metrics config that omits the exp_tag key entirely -- plausible for someone writing a minimal custom config for the documented 'standalone measure/infer' mode (metrics.yaml:23 explicitly advertises this mode), but not the default recipe path. Medium severity matches: real bug, misleading docstring, confusing raw traceback instead of the intended guidance, but a narrow edge case requiring non-standard config authorship."
+ },
+ "base-pipeline#12": {
+  "id": "base-pipeline#12",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "Core mechanism confirmed against the actual installed Lightning source (lightning/fabric/strategies/launchers/subprocess_script.py): `_SubprocessScriptLauncher.launch()` calls `if not self.cluster_environment.creates_processes_externally: self._call_children_scripts()`, and `_basic_subprocess_cmd()` returns exactly `[sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:]` -- i.e. it re-execs the identical script + argv (including the full --stages list) as a new OS process per additional local rank, only setting LOCAL_RANK/RANK/WORLD_SIZE env vars, not argv. Each such child process starts a fresh Python interpreter that runs run.py's __main__ block from scratch: re-parses the same --stages argv, reloads configs, and calls run_stages() over the full stage list again -- confirmed no rank/LOCAL_RANK gate exists anywhere in stages_utils.py's run_stages() except the train-stage log-filename branch (lines ~152-173), and no `is_global_zero`/rank-0 guard exists in trainer.py's fit() (which just calls self.trainer.fit(...) directly) or system.py. Confirmed the child does not recurse infinitely (creates_processes_externally becomes True in the child once LOCAL_RANK is preset, so _call_children_scripts is not called again in children) -- so the actual failure mode is exactly N-1 extra full re-executions of every pre-train and post-train stage, not a fork bomb, matching the finding. Reachability is stronger than 'contrived': doc/espnet3/parallel.md's own worked trainer example (lines ~198-213) shows `devices: 4` with `strategy: ddp` and says nothing about needing torchrun/srun, so a user following the documented multi-GPU config and launching with a bare `python run.py` hits this. Not the default single-device recipe path, so not critical, but it's a real distributed/idempotency bug on a documented configuration path -- high severity matches."
+ },
+ "config-hydra#01": {
+  "id": "config-hydra#01",
+  "verdict": "refuted",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "The described crash does not occur for the actual documented usage. I ran the exact 'Quick usage' command for real: `cd egs3/TEMPLATE/asr && PYTHONPATH=<repo> python3 run.py --stages create_dataset --training_config conf/training.yaml --dry_run` completes successfully with normal log output ('[DRY RUN] would run stage: create_dataset'), no crash. The finding's premise -- 'Python sets __package__ = \"\" (not None) when run.py is executed directly' -- is factually wrong for a genuine `python script.py` invocation. I verified directly: a bare script inside a real package tree (with __init__.py at every level, mirroring egs3/TEMPLATE/asr's structure) executed via `python inner.py` prints `__package__ = None`, not `''`. Since `__package__` is None, config_utils.py's guard `if default_package is None: default_package = _resolve_egs3_path(config_path, as_package=True)` (config_utils.py:397-398) DOES fire, and `_resolve_egs3_path` correctly infers 'egs3.TEMPLATE.asr' from the config path, so `resources.files(...)` never receives an empty string. The original reviewer's own 'Verified' reproduction used `runpy.run_path('run.py', run_name='__main__')`, which I also ran against this same tree and it DOES crash with the cited ValueError -- but that is an artifact of runpy's own module-execution machinery (which sets `__package__=''` differently from a genuine CPython script launch), not a property of real `python run.py` invocation. There is no console_scripts/entry_point wrapper in pyproject.toml/setup.cfg that would invoke run.py any other way. I'm marking this refuted rather than corrected because the central claim (a crash on the documented quick-start command) is simply false; there's no adjacent real bug at these lines worth relabeling. Severity field is required by the schema but is moot given the refutation."
+ },
+ "config-hydra#02": {
+  "id": "config-hydra#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "Reproduced exactly as described. task_utils.py:78-79 does `model_config = resolved_config.pop('model'); if '_target_' in model_config:` with no None-check; `save_espnet_config('espnet2.tasks.asr.ASRTask', OmegaConf.create({'model': None, 'dataset': None}), 'out.yaml')` raises `TypeError: argument of type 'NoneType' is not iterable`. Confirmed the call site: training.py:90-92 `task = config.get('task'); if task: save_espnet_config(task, config, config.exp_dir)`, guarded only on task being truthy, executed before any model instantiation. Confirmed reachability: egs3/TEMPLATE/asr/conf/training.yaml ships BOTH `task:` (line 22) and `model:` (line 125) as blank/None placeholders, so the stock TEMPLATE alone doesn't trigger it (task is falsy by default) -- but the shipped mini_an4 configs (training.yaml, training_asr_transformer.yaml, etc.) all set a real `task:` value AND a real `model:` dict, so the shipped recipes don't hit it either. The crash requires a user to follow the natural TEMPLATE-customization workflow of filling in `task:` first while `model:` is still blank -- a realistic, easy-to-hit ordering mistake for anyone building a new recipe from TEMPLATE, producing a low-level TypeError instead of the actionable message the codebase clearly intends elsewhere. High severity matches: real crash in a realistic configured/in-progress path."
+ },
+ "config-hydra#03": {
+  "id": "config-hydra#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Code and evidence confirmed by reading: test_task_utils.py:59-64 catches RuntimeError and only skips when `'numpy.dtype size changed' in str(e)`, re-raising otherwise. review_log/pytest_espnet3.txt (already in-repo from the actual review pixi environment) shows exactly the 2 failures the finding cites: `test_get_task_class_returns_correct_class[espnet2.tasks.gan_svs.GANSVSTask-GANSVSTask]` and the svs.SVSTask variant, both failing with `RuntimeError: Failed to get task class from ...: ModuleNotFoundError(\"No module named 'pkg_resources'\")`, which the narrow string match does not catch. Note: my own ambient python3 (outside the project's pixi env) has pkg_resources/setuptools installed and would not reproduce this locally, but the finding's evidence is an actual captured pytest run from this repo's own review environment, not a live claim I need to re-execute, and the code-level defect (overly narrow skip-message match that fails instead of skips for a different missing-optional-dependency error) is real and independent of which env exhibits it. Medium severity (test-quality/environment-fragility, not a production bug) matches."
+ },
+ "data-loading#01": {
+  "id": "data-loading#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading. dataloader.py's `_get_world_info` (around line 83) and `_build_iter_factory` (around line 258) both gate on `if self.num_device > 1:` to decide whether to call `torch.distributed.get_world_size()/get_rank()` at all; otherwise they hardcode `world_size=1, rank=0`. `num_device` is threaded in from `self.config.num_device` in lightning_module.py:1137,1156, which is the TEMPLATE `num_device` key mapped to `trainer.devices` (per-node device count), NOT the actual distributed world size. For `num_device: 1, num_nodes: 2` (a legitimate multi-node, 1-GPU-per-node config), Lightning still creates a DDP process group across both nodes (world_size=2, torch.distributed.is_initialized()==True), but DataLoaderBuilder's rank/world_size detection stays at (0,1) because it only checks num_device, not actual torch.distributed state. iterator.py:123-124 does it correctly, checking `torch.distributed.is_available() and torch.distributed.is_initialized()` -- confirming the inconsistency is real and localized to dataloader.py. The 'dist_world_size must match the distributed world_size' error message (dataloader.py:130) is also confirmed present. Effect matches the claim: silent full-dataset duplication across nodes (no error, just N-node-fold wasted compute, not correctness-breaking since EpochSyncIterator keeps ranks in lock-step) or a spurious hard-reject for a correctly-configured ShardedDataset. High severity matches: multi-node-with-single-GPU-per-node is a realistic HPC configuration, and this is exactly a distributed/idempotency-class bug."
+ },
+ "data-loading#02": {
+  "id": "data-loading#02",
+  "verdict": "confirmed",
+  "severity": "critical",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading, and I'm raising severity above the original 'high' because this fits the rubric's 'critical' bar directly ('silently wrong training results') via a plausible, non-contrived path. collect_stats.py:499-503 instantiates `CollectStatsRunner(provider, output_dir=output_dir, mode=mode, write_collected_feats=...)` with no `resume=` argument, so it inherits BaseRunner's `resume: bool = True` default (base_runner.py:84). `_resolve_shards`/`_plan_shards` (base_runner.py:283-334) build the shard manifest purely from `{shard_id, items}` -- i.e. index-chunk boundaries derived from dataset length and batch_size -- with zero fingerprinting of model_config, frontend params, or dataset content. `_filter_pending_shards` (base_runner.py:339-357) skips any shard whose `is_shard_done` marker exists, and `merge()` is called over `_get_completed_shard_dirs` regardless of whether those shards were computed under the current run's config. So changing the frontend (n_mels/hop_length/fs) or dataset contents while dataset length and batch_size stay constant produces an identical manifest, causing every shard to be skipped and merge() to silently rewrite feats_stats.npz/feats_shape from stale per-shard files computed under the OLD frontend. Confirmed the sharing hazard is real and not hypothetical: egs3/TEMPLATE/asr/conf/training.yaml:29 sets `stats_dir: ${recipe_dir}/exp/stats`, and none of the 6 shipped egs3/mini_an4/asr/conf/training*.yaml variants (which use materially different frontends/architectures: streaming, transducer, transformer, split-preprocessor) override stats_dir -- so simply running two different shipped mini_an4 training configs against the same recipe checkout, in either order, hits this. The result is GlobalMVN silently normalizing with the wrong statistics for the active frontend, with no error unless the feature dimensionality happens to differ -- exactly 'silently wrong training results' with a realistic, in-repo reachability path, not merely a default single-run scenario. That combination (silent correctness bug + reachable via the repo's own shipped multi-config recipe layout) is why I'm scoring this critical rather than high."
+ },
+ "data-loading#03": {
+  "id": "data-loading#03",
+  "verdict": "corrected",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "Confirmed against current tree and Lightning 2.6.1 source. dataloader.py:92-141 `_maybe_shard_dataset` is called unconditionally in `build()` (line 195) regardless of whether iter_factory is set, so a ShardedDataset gets epoch/rank-sharded even on the standard-DataLoader (Case 2) path. lightning_module.py:178-198 sets `is_espnet_sampler = is_train_espnet` strictly from `config.dataloader.train.iter_factory is not None`, so a ShardedDataset used with Case 2 (iter_factory: null) leaves is_espnet_sampler False. trainer.py:137-138 only forces `use_distributed_sampler = False` when `is_espnet_sampler` is True, so with Case 2 it stays at Lightning's own default (True, verified: `pytorch_lightning.Trainer.__init__` default `use_distributed_sampler: bool = True`). Read Lightning's `_DataConnector._requires_distributed_sampler`/`_get_distributed_sampler` (pytorch_lightning/trainer/connectors/data_connector.py) directly: when the loader's sampler is a plain RandomSampler/SequentialSampler (which is what a plain `torch.utils.data.DataLoader(dataset, sampler=None, ...)` gets), Lightning replaces it with `DistributedSampler(dataloader.dataset, num_replicas=world_size, rank=rank)` built over `dataloader.dataset` -- which is already the rank's own shard. So each rank's already-unique shard gets sub-sampled again by rank/world_size, and the unvisited halves differ by rank and are never trained by any rank in that epoch, silently. No guard rejects this combination anywhere in the reviewed code. Only correction: the trainer.py/lightning_module.py citations have drifted a few lines (verified against current file) -- the real lines are trainer.py:137-138 (not 130-131) and lightning_module.py:198 (not 199); the dataloader.py:140-141,219-244 citations are exact. Severity high is appropriate: it requires a user to actually build a ShardedDataset subclass and choose Case 2 with DDP (not the shipped egs3 template default, which always sets iter_factory), so it is a realistic-but-opt-in configured path producing a silent distributed correctness bug, not a default-recipe crash.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": "espnet3/components/data/dataloader.py:140-141,219-244; espnet3/components/trainers/trainer.py:137-138; espnet3/components/modeling/lightning_module.py:198",
+  "corrected_fix": null
+ },
+ "data-loading#04": {
+  "id": "data-loading#04",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Reproduced directly: built a DataLoaderBuilder with dataloader.train = {total_shards:1, dist_world_size:1, iter_factory:None, batch_size:4, num_workers:0, shuffle:True} and called builder.build('train') -> `TypeError: DataLoader.__init__() got an unexpected keyword argument 'total_shards'`, exactly as claimed. Confirmed dataloader.py:92-141 reads total_shards/dist_world_size only via getattr on the dataset object (never from config), and _build_standard_dataloader (219-250) only pops 'dataset' and 'iter_factory' from the mode config before `**config` into torch.utils.data.DataLoader (238-244) -- total_shards/dist_world_size, if present in the YAML mode block, are forwarded verbatim and crash. Verified the exact template layout: egs3/TEMPLATE/asr/conf/training.yaml:223-227 and :243-245 place `total_shards: 1` / `dist_world_size: 1` directly under dataloader.train/valid (sibling of iter_factory), and egs3/mini_an4/asr/conf/training_asr_streaming.yaml:126-129 does the same -- both citations are pixel-accurate against the current tree. The default templates ship Case 1 (iter_factory set) so they don't crash today, but a user following the docstring's documented Case 2 example while reusing the template's existing dataloader.train block (which already carries these dead keys) hits this immediately -- a real, easy-to-hit documentation/config trap, not just a contrived edge case.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#05": {
+  "id": "data-loading#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed the mechanism end-to-end. lightning_module.py:1124-1140 rebuilds train_dataloader() fresh every epoch (trainer.py:137-138/117-129 forces reload_dataloaders_every_n_epochs=1), so dataloader.py's `_build_iter_factory` (252-308) reruns `build_batch_sampler(**factory_config.pop('batches'))` every epoch. build_batch_sampler's samplers (sorted/numel/unsorted/etc.) do not depend on epoch, so the batch list content and order are identical across calls; the DDP tail-drop at 263-277 (`batches = batches[:keep]`) therefore drops the same `total % world_size` batches (whichever sort puts them last) every epoch. Checked espnet2/iterators/sequence_iter_factory.py's actual default branch (num_iters_per_epoch is None, which is what the templates use): `batches = self.sampler.generate(epoch + self.seed); if shuffle: np.random.RandomState(...).shuffle(batches)` -- RawSampler.generate just returns `list(self.batches)` and the shuffle is an in-place permutation of that same list, i.e. order-only, membership unchanged, confirming the finding's characterization (the finding's own citation, lines 75-87, is technically the num_iters_per_epoch branch rather than this default else-branch, but the same order-only-shuffle behavior holds there too). Severity medium is reasonable: normally only up to world_size-1 batches are permanently excluded (a small, systematic bias, worse for length-sorted types since it is always the extreme-length batch), and the keep==0 zero-training-step edge case only triggers for a tiny dataset relative to world_size.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#06": {
+  "id": "data-loading#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed directly. lightning_module.py:1143-1160 `val_dataloader()` builds `DataLoaderBuilder(dataset=self.valid_dataset, ..., epoch=self.current_epoch)` then calls `builder.build(mode='valid')`; dataloader.py:195 `build()` calls `self._maybe_shard_dataset(self.dataset)` unconditionally for both train and valid modes, with no branch that skips shard rotation for validation. Line 140 `shard_idx = ((self.epoch * runtime_world_size) + rank) % total_shards` is therefore epoch-dependent for valid exactly as it is for train. Confirmed training.yaml:194-197 configures `best_model_criterion: valid/loss, 3, min`, which depends on valid metrics being comparable across epochs. This only manifests when the validation split is itself built from a ShardedDataset with total_shards>1 (the default egs3 templates ship total_shards=1, which makes shard_idx always 0, so no rotation occurs by default) -- a real but opt-in design gap for large streaming validation sets.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#07": {
+  "id": "data-loading#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed. dataset.py:371-397 `CombinedDataset.shard(shard_idx)` builds a brand-new CombinedDataset from `[d.shard(shard_idx) for d in self.datasets]`, which recomputes cumulative_lengths from scratch -- i.e. the shard's integer indexing is a fresh 0..shard_len-1 space, unrelated to the original full-dataset index space. dataset.py:186-193 confirms CombinedDataset.__getitem__ treats a numeric string like '57' as a positional/global integer index (`numerical_idx = int(idx)`), not a stable utterance id. Since shape files from collect_stats are keyed by this same str(idx) scheme (collect_stats.py, see #08 below) computed against the *unsharded* dataset, and dataloader.py:140-141/195 hands the *sharded* dataset to the iter_factory (dataloader.py:301 `instantiate(factory_config, dataset, batches=batches)`), a batch's uid '57' resolves against the shard's own local index space, yielding either a different (wrong-length) utterance or IndexError once the shard is shorter than 58 items. No code path validates or remaps shape-file uids against the shard. This is a real, unguarded incompatibility between two documented features (ShardedDataset epoch-rotation and the iter_factory/shape-file path, which is the *only* path the shipped egs3 templates use).",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#08": {
+  "id": "data-loading#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed. collect_stats.py:29-51 `collect_stats_batch` builds `uid, sample = str(i), item` (or, when use_espnet_preprocessor is set, dataset.py:205's `self.transforms[i][1](str(idx), transformed)` applies the same str(idx) as the id) where `i`/`idx` is the CombinedDataset's plain integer position, and shape_info is keyed by that uid at collect_stats.py's shape_info[feat_key][uid] = ... assignment. Nothing in collect_stats.py or dataset.py records a fingerprint (entry count, entry identity/hash, or ordering signature) of the dataset alongside the shape files, and dataset.py's CombinedDataset.__getitem__ (186-193) treats a numeric string purely positionally. So any reordering/insertion in the underlying recipe Dataset(s) between a collect_stats run and a later train run silently reattributes stored lengths to different utterances, with no detection mechanism anywhere in the reviewed code. This is a real, unguarded design gap (a fingerprint/stable-id check would need to be added at either collect_stats time or DataLoaderBuilder time).",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#09": {
+  "id": "data-loading#09",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by tracing every instantiation for `training.collect_stats(config)`: training.py:32-40 `_build_trainer` calls `_instantiate_model` (model #1) then `ESPnetLightningModule(model, config)`, whose __init__ (lightning_module.py:164) does `instantiate(config.dataset)` (organizer #1); `ESPnet3LightningTrainer.__init__` (trainer.py) unconditionally builds callbacks/loggers touching exp_dir via `get_default_callbacks(exp_dir, ...)` even though collect_stats only needs stats_dir. training.py:67-68 then calls `trainer.collect_stats()` -> trainer.py's `collect_stats` delegates to `self.model.collect_stats()` -> lightning_module.py's loop over ['train','valid'] calling the module-level collect_stats() once per mode. Each such call goes through collect_stats.py's `_collect_stats_common` -> `_get_dataset_length` -> `_instantiate_dataset` -> `instantiate(dataset_config)` (organizer instance #2 per mode) and, via CollectStatsInferenceProvider.build_env_local() (collect_stats.py:239-256), `_build_dataset` -> `_instantiate_dataset` again (organizer #3 per mode) plus `_build_model` (model instance #2 per mode). Totalling over train+valid: organizer instantiated 1 + 2*2 = 5 times, model instantiated 1 + 2*1 = 3 times -- exactly matching the finding's arithmetic. This is a real efficiency/design issue (repeated dataset scans, tokenizer loads, and unnecessary exp_dir/logger setup for a stats-only stage), not a correctness bug, consistent with the finding's own 'design/medium' framing.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#10": {
+  "id": "data-loading#10",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Reproduced directly: `parse_dataset_reference_config({'data_src': 'mini_an4/asr', 'data_src_args': None})` raises `TypeError: 'NoneType' object is not iterable`. Confirmed dataset_module.py:207 `data_src_args = dict(plain.get(_DATA_SRC_ARGS_KEY, {}))` -- when the key is present with an explicit null (the natural YAML for 'no constructor args', e.g. `data_src_args:` with nothing after the colon), `plain.get(key, {})` returns None (the default `{}` only applies when the key is absent), so `dict(None)` raises a bare TypeError with no mention of the offending field, contradicting the docstring at lines 184-186 which promises `ValueError: If data_src_args is incompatible with dict(...)`. This is a reachable, realistic YAML authoring mistake (leaving a mapping key blank is idiomatic YAML for 'no value'), not a contrived misuse.",
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "data-loading#11": {
+  "id": "data-loading#11",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading. base_runner.py:288-289 `if par_config is not None and env not in (\"local\",): num_shards = int(getattr(par_config, \"n_workers\", 1))` -- when env=='local' num_shards stays 1 regardless of n_workers, so make_parallel_cfg (test_collect_stats.py:209-211, returns env='local') always plans exactly one shard. base_runner.py:473-478 routes env=='local' to self._run_local(pending), never _run_parallel_dask, confirming the Dask path is unexercised. Also confirmed: DummyDataset in the test file (lines 51-76) hard-codes `if self.use_espnet_preprocessor: return uid, {...}` in __getitem__, directly encoding collect_stats_batch's (buggy, see data-organizer#02) assumption rather than CombinedDataset's real use_espnet_collator-gated contract -- so no test uses a real CombinedDataset and the mismatch found in data-organizer#02 is invisible to this suite. This is a genuine test-quality gap, not a functional bug itself."
+ },
+ "data-organizer#01": {
+  "id": "data-organizer#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading. dataset.py:164-165 `self._use_espnet_collator = False` is set unconditionally in __init__ with no constructor parameter to override it. dataset.py:393-398 shard() builds `CombinedDataset(sharded_datasets, self.transforms, self.use_espnet_preprocessor)`, re-running __init__ and never forwarding use_espnet_collator. lightning_module.py:1130 `self.train_dataset.use_espnet_collator = isinstance(self.collate_fn, CommonCollateFn)` sets the flag on the *original* unsharded dataset before calling `builder.build()`, which (dataloader.py:195, :92-140 `_maybe_shard_dataset`) calls `dataset.shard(shard_idx)` whenever the wrapped dataset exposes `total_shards`/`dist_world_size` (the ShardedDataset feature) -- producing a brand-new CombinedDataset with the flag reset to False. This is not contrived: ShardedDataset/total_shards is used in a real shipped recipe (egs3/mini_an4/asr/conf/training_asr_streaming.yaml references it, and it is TEMPLATE-documented), so any streaming/sharded recipe using the default CommonCollateFn silently gets plain dicts instead of (uid, sample) tuples once sharding is engaged."
+ },
+ "data-organizer#02": {
+  "id": "data-organizer#02",
+  "verdict": "corrected",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "The core claim is confirmed: collect_stats.py:41-45 branches on `dataset.use_espnet_preprocessor`, but the tuple-vs-dict shape of dataset[i] is actually gated by the separate `use_espnet_collator` flag (dataset.py:212,237: `if self.use_espnet_collator: return str(idx), transformed`). However the finding's own scenario walkthrough is backwards for the 'working' case, which needs correcting.",
+  "corrected_summary": "collect_stats_batch decides whether dataset[i] returned a (uid, sample) tuple by checking dataset.use_espnet_preprocessor, but CombinedDataset only returns that tuple when the separate use_espnet_collator flag is True.",
+  "corrected_scenario": "Ran the actual CombinedDataset/collect_stats_batch code (scratch check_collect_stats.py). collect_stats.py:246-247/271-272 set `dataset.use_espnet_collator = isinstance(collate_fn, CommonCollateFn)` in build_env_local/worker setup, independent of use_espnet_preprocessor (data_organizer.py:399,457: `isinstance(preprocessor, AbsPreprocessor)`). The finding claims the literal TEMPLATE default (empty `preprocessor:` + default CommonCollateFn -- both are the actual *uncommented* defaults in egs3/TEMPLATE/asr/conf/training.yaml:104 and :218-220) 'ends up being the correct dict' -- this is false: with preprocessor empty, use_espnet_preprocessor=False, but the default CommonCollateFn makes use_espnet_collator=True, so dataset[i] returns a TUPLE ('0', {...}); collect_stats_batch's else-branch then does `uid, sample = str(i), item`, so `sample` becomes the whole tuple instead of the dict (verified: 'ds[0] type: <class tuple> ... sample= (\"0\", {...})'), which would then break CommonCollateFn downstream. So the literal, out-of-the-box TEMPLATE combination is the one that is broken, not merely a hypothetical 'reverse' misconfiguration. The reverse case (AbsPreprocessor + a genuinely custom, non-CommonCollateFn collate_fn) also breaks, but the other way: dataset[i] returns a plain dict (verified: 'ds[0] type: <class dict>'), and collect_stats_batch's if-branch does `uid, sample = item`, which for a multi-key dict raises ValueError('not enough values to unpack') rather than the TypeError originally claimed.",
+  "corrected_lines": "espnet3/components/data/collect_stats.py:41-45,130,246-247,271-272; espnet3/components/data/dataset.py:205-215,237-239; espnet3/components/data/data_organizer.py:399,457; egs3/TEMPLATE/asr/conf/training.yaml:104,218-220 (the literal uncommented defaults that reach this bug)",
+  "corrected_fix": "Check `getattr(dataset, 'use_espnet_collator', False)` (the flag that actually controls whether dataset[i] returns a tuple) instead of use_espnet_preprocessor in collect_stats_batch, since the two flags can and do diverge under the shipped TEMPLATE defaults."
+ },
+ "data-organizer#03": {
+  "id": "data-organizer#03",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading data_organizer.py:404-424 (is_espnet check: `isinstance(partial_preprocessor.func, type) and issubclass(partial_preprocessor.func, AbsPreprocessor)` is False for a factory function target since `.func` is the function itself, not a class) and :306-318 (non-split branch: `train_preprocessor = self._instantiate_preprocessor_from_config(preprocessor_cfg, True)`; since is_espnet is False for both calls, the train_flag argument is never merged into the config in either call, so train_preprocessor and valid_preprocessor are both built from the identical preprocessor_cfg with whatever `train:` value it carries verbatim). TEMPLATE's own commented documentation (egs3/TEMPLATE/asr/conf/training.yaml ~line 98, `preprocessor: _target_: src.preprocess.build_preprocessor`) explicitly presents a factory-function target as a supported configuration pattern, so this is reachable from the documented API, not just contrived misuse. This silently runs validation with train-time settings (e.g. augmentation) when a factory-function preprocessor sets train=True in its config."
+ },
+ "data-organizer#04": {
+  "id": "data-organizer#04",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading. builder.py:159-161 `is_built()` is `all((data/p).is_file() ...)` -- existence-only, no size or marker check. builder.py:237-242 `build()` writes manifests via a direct `path.open('w')` + line-by-line write, no temp-file+rename. egs3/mini_an4/asr/dataset/dataset.py:93-97 in MiniAn4Dataset.__init__ calls `if not builder.is_built(...): builder.build(...)` with no lock/barrier around the check-then-build. This is a real idempotency/race hazard when multiple DDP ranks or parallel workers construct the auto-building dataset concurrently (a realistic path for a multi-GPU distributed training entry point), matching the 'distributed/idempotency bug' criterion for high severity."
+ },
+ "data-organizer#05": {
+  "id": "data-organizer#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading dataset.py:270-276 (registration loop: `if self._dataset_supports_int[dataset_idx]: continue` -- int-addressable sub-datasets are never added to _uid_to_dataset) and :344-351 (_resolve_string_mode_index for a string idx only consults `self._uid_to_dataset[idx]`, no numeric-string fallback for int-addressable sub-datasets). Also confirmed :262-263 `all_integer_addressable = all(self._dataset_supports_int)` combined with :251-257's supports_integer_index probing `dataset[0]` means a single empty sub-dataset (IndexError on [0]) forces the entire CombinedDataset into string mode, potentially stranding other int-addressable sub-datasets that expose no string keys. Both are genuine gaps in the documented mixed-dataset-combination feature (a real use case CombinedDataset is built to support), not contrived misuse, but require a specific mixed-dataset-type combination to trigger -- medium fits."
+ },
+ "data-organizer#06": {
+  "id": "data-organizer#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Confirmed by reading dataset.py:251-257: `def supports_integer_index(dataset): try: dataset[0] except Exception: return False else: return True` -- a bare `except Exception` swallows any error type, not just IndexError/KeyError/TypeError. A dataset whose first item genuinely errors (e.g. corrupt audio file, a realistic occurrence in ASR/TTS pipelines) gets silently reclassified as string-index-only rather than surfacing the real error immediately; the error does eventually resurface via _collect_string_keys's iter(dataset) fallback, but attributed to the wrong code path, degrading diagnostics quality rather than causing silently wrong results. Medium (robustness/misleading error) matches severity rubric."
+ },
+ "data-organizer#07": {
+  "id": "data-organizer#07",
+  "verdict": "corrected",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Core bug confirmed: grep across dataset.py shows self.multiple_iterator is referenced only at line 416 inside __repr__ and is never assigned anywhere in the class, so repr(combined_dataset) (and str(), since no __str__ override exists) always raises AttributeError. However the finding's claimed default-path reachability is wrong and needs correcting: I checked build_qualified_name (espnet3/utils/logging_utils.py:690-730), which is what DataOrganizer.log_summary/_log_dataset actually call (data_organizer.py:89,94,108) -- it uses only `type(obj).__module__`/`type(obj).__name__` (and len() for builtins), and never calls repr()/str() on the object. So log_summary (called from lightning_module.py:166 in the default ESPnetLightningModule.__init__ path) does NOT trigger this bug; grepping espnet3/components/data/*.py also found no `%r`/`!r` formatting of dataset objects. The crash is real but only reachable via an explicit `repr(dataset)`/`print(dataset)`/`str(dataset)` call (debugger, ad-hoc logging, or test code), not any default training/logging code path -- so medium (not high/critical) is the right severity, matching the original label.",
+  "corrected_summary": "CombinedDataset.__repr__ references self.multiple_iterator, which is never assigned anywhere in the class, so repr(combined_dataset) (and plain str()/print()) always raises AttributeError -- but this is NOT hit by DataOrganizer.log_summary/_log_dataset, which use build_qualified_name (type-name based, no repr() call) rather than %r/repr().",
+  "corrected_scenario": "Reachable only via an explicit repr(dataset)/str(dataset)/print(dataset) call (e.g. in a debugger, an ad-hoc log line using %s/%r on the dataset object, or test/debug code) -- not via any default training entry point. DataOrganizer.log_summary (called from ESPnetLightningModule.__init__, the standard training startup path) uses build_qualified_name(obj), which reads type(obj).__module__/__name__ and never calls repr() on the dataset, so that call site is safe.",
+  "corrected_lines": "espnet3/components/data/dataset.py:416 (bug); espnet3/components/data/data_organizer.py:89,94,108 and espnet3/utils/logging_utils.py:690-730 (the log_summary call site, shown NOT to trigger the bug)",
+  "corrected_fix": "Remove the multiple_iterator field from __repr__ (it appears to be leftover from an earlier design), or add and maintain the corresponding attribute if it is meant to reflect ESPnet's multiple-iterator mode."
+ },
+ "data-organizer#08": {
+  "id": "data-organizer#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read dataset.py:181-217 and 316-330 in the current tree. CombinedDataset.__getitem__ numeric-mode loop `for i, cum_len in enumerate(self.cumulative_lengths): if idx < cum_len:` has no `idx < 0` guard, so for a negative idx the first sub-dataset (i=0, cum_len=len(datasets[0])) is matched whenever idx < cum_len (true for any negative idx, since cum_len>0), giving ds_idx=idx (still negative) and `self.datasets[0][ds_idx]` returns that sub-dataset's own Python negative-indexed item, with uid=str(idx) (e.g. '-1') attached -- silently wrong data and a bogus uid rather than an error. This is directly inconsistent with `_resolve_string_mode_index` (dataset.py:316-319), which explicitly does `if idx < 0: raise IndexError(...)` for the exact same kind of input. Verified purely by reading; the scenario (dataset[-1] on a multi-dataset combo) is a natural, non-contrived use of Python's negative-indexing convention.",
+  "verified_by_execution": false
+ },
+ "data-organizer#09": {
+  "id": "data-organizer#09",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed the mechanism: dataset_module.py:94-116 loads recipe_dir/dataset/__init__.py via `util.spec_from_file_location` under a synthetic name `_espnet3_local_dataset_<sanitized-path>` and registers it in sys.modules under that name only -- so any class defined via that module (or reached transitively, e.g. mini_an4's `from .dataset import MiniAn4Dataset as Dataset`) gets `__module__` set to that synthetic, non-real name, which a fresh interpreter cannot resolve to unpickle. Confirmed mini_an4/asr/dataset/__init__.py uses relative imports (`from .builder import ...`) while librispeech_100/asr/dataset/__init__.py uses absolute `from egs3.librispeech_100...` imports, and confirmed mini_an4's own training.yaml omits `data_src` for its dataset entries (grep hit: 'data_src is omitted, so ESPnet3 loads ${recipe_dir}/dataset/__init__.py'), so the local-loading path is exercised by the shipped example recipe, not a hypothetical. The caveat (not fatal to the finding, just a scope note): on Linux the default DataLoader worker start method is fork, which does not require pickling the Dataset object at all, so this only bites with an explicit spawn multiprocessing_context, ddp_spawn strategy, or on macOS/Windows where spawn is default -- none of which mini_an4's training.yaml configures (num_workers/multiprocessing_context are unset). The underlying inconsistency and real unpicklability under spawn is genuine.",
+  "verified_by_execution": false
+ },
+ "data-organizer#10": {
+  "id": "data-organizer#10",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read data_organizer.py:317-331 in current tree: in the `elif isinstance(preprocessor_cfg, AbsPreprocessor)` branch, only `train_preprocessor` is deepcopied (`train_preprocessor = copy.deepcopy(preprocessor_cfg); train_preprocessor.train = True`); `valid_preprocessor = preprocessor_cfg` and `test_preprocessor = preprocessor_cfg` reuse the caller's original object with no copy, then `.train = False` is assigned directly onto it, mutating the caller's instance. Read egs3/mini_an4/asr/src/preprocessor.py:14-42: MiniAn4TokenizeSpeedPerturbPreprocessor.__init__ computes `data_aug_effects`/`data_aug_prob` once from the `train` constructor argument and bakes them into `self._delegate = CommonPreprocessor(...)`; `__call__` just forwards to `self._delegate(uid, data)` without ever consulting `self.train` again, so later flipping the outer `.train` attribute changes nothing about the actual augmentation behavior -- valid/test would still run with train-time speed-perturb config baked into `_delegate`. The `preprocessor` constructor argument on DataOrganizer is a real, reachable Python-API input (not YAML-only), and the code contains an explicit isinstance(AbsPreprocessor) branch and a comment acknowledging the original-instance reuse design, confirming this is an intended-but-buggy path, not contrived misuse. Confirmed no copy exists for valid/test in this branch.",
+  "verified_by_execution": false
+ },
+ "data-organizer#11": {
+  "id": "data-organizer#11",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read data_organizer.py:278-296 and 403-411 in current tree. Confirmed exactly as described: `if train_cfg is None: logger.warning(...)` with no exception, so `train_cfg` stays None; `valid_cfg`/`test_cfg` fall back to earlier configs when missing but only when the corresponding earlier value is itself present. `_instantiate_preprocessor_from_config(None, True)` (lines 403-411) returns `do_nothing` immediately for a None config, while a real (valid) config produces an actual instantiated preprocessor -- so a split-config that defines valid/test but omits train silently produces an unpreprocessed train split alongside a preprocessed valid/test split, with only a log warning (easy to miss) as the signal. This is a real, plausible config-authoring mistake (a copy-paste that drops the train: block), not contrived.",
+  "verified_by_execution": false
+ },
+ "data-organizer#12": {
+  "id": "data-organizer#12",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read dataset_module.py:170-207 in current tree; docstring at lines 184-186 reads exactly 'Raises: TypeError: If data_src is neither a string nor None. ValueError: If data_src_args is incompatible with dict(...).' Line 207 is exactly `data_src_args = dict(plain.get(_DATA_SRC_ARGS_KEY, {}))`. Since `.get()`'s default only applies when the key is absent, an explicit `data_src_args: null` in a config (key present, value None) makes `plain.get(...)` return None, and `dict(None)` raises TypeError, not the documented ValueError -- confirmed by direct reasoning about dict.get() and dict(None) semantics (both well-established Python behavior). Also confirmed test/espnet3/utils/test_dataset_module.py:249-257 -- the test named `test_instantiate_dataset_reference_invalid_kwargs_raises_type_error` actually passes `{'data_src_args': 'not-a-mapping'}` (a string) and asserts `pytest.raises(ValueError)`, which is consistent with `dict('not-a-mapping')` raising ValueError (each length-1 char isn't a valid 2-tuple), but the test name doesn't match what it tests, and the null/None case that genuinely raises TypeError is untested. A `data_src_args:` line with no value is an easy, realistic YAML authoring mistake.",
+  "verified_by_execution": false
+ },
+ "data-organizer#13": {
+  "id": "data-organizer#13",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read data_organizer.py:1-70 and 244-249 and 429-451 in current tree. `DatasetConfig` is a plain `@dataclass` with no `__iter__`/`keys()`, and the `train`/`valid`/`test` parameters are typed `Optional[List[Union[DatasetConfig, Dict[str, Any], DictConfig]]]` (line 246-248). In `_build_dataset_list` (lines 429-451), a non-DictConfig entry is passed through as-is (`raw_config = config`) into `instantiate_dataset_reference` -> `parse_dataset_reference_config` -> `_to_plain_dict`, whose non-DictConfig branch is `return dict(config)` (dataset_module.py:31-34); `dict(<dataclass instance>)` raises TypeError since dataclass instances aren't iterable as key/value pairs by default -- confirmed by Python's dict() semantics, no counter-example conversion (e.g. dataclasses.asdict) exists anywhere in data_organizer.py (grep confirmed zero 'asdict' hits) or dataset_module.py. Also confirmed grep across egs3/ and test/ shows zero real usages of `DatasetConfig(...)` anywhere in the codebase, meaning this documented/type-hinted path is completely untested and would crash on first real use. The `preprocessor: Optional[Callable[[dict], dict]]` hint (line 249) is also confirmed inconsistent with the actual `preprocessor(uid, sample)` two-arg call used whenever `use_espnet_preprocessor` is True (dataset.py:208). One minor imprecision: the specific docstring lines cited (42-54) show `DatasetConfig(**config_dict)` construction, not literally `DataOrganizer(train=[DatasetConfig(...)])`, but the type hint at line 246 (the actual declared contract) unambiguously promises this exact usage works, so the core claim stands.",
+  "verified_by_execution": false
+ },
+ "data-organizer#14": {
+  "id": "data-organizer#14",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read egs3/librispeech_100/asr/dataset/dataset.py:75-140 in current tree. Class docstring example at lines 89-94 literally shows `>>> sorted(sample.keys()) ['speech', 'text', 'utt_id']`, but `__getitem__` (lines 134-140) returns only `{'speech': ..., 'text': ...}` -- utt_id is dropped even though `LibriSpeechExample` (a frozen dataclass, lines 29-33) does carry a real `utt_id` field that's simply never included in the returned sample. Confirmed egs3/librispeech_100/asr/src/inference.py:6 does `utt_id = data.get('utt_id', str(idx))`, so with the real dataset every output row is keyed by the numeric dataloader index rather than the true utterance id. Confirmed this is the recipe's own default/documented inference path via `output_fn: src.inference.build_output` set in egs3/librispeech_100/asr/conf/inference.yaml:66, not a hypothetical caller.",
+  "verified_by_execution": false
+ },
+ "data-organizer#15": {
+  "id": "data-organizer#15",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read egs3/mini_an4/asr/dataset/builder.py:195-225 in current tree; confirmed exact structure: `wav.parent.mkdir(...); if not wav.exists(): with wav.open('wb') as fh: subprocess.run([sph2pipe, ...], stdout=fh, check=True)`. `wav.open('wb')` creates/truncates the file immediately, before sph2pipe finishes writing to it, so the on-disk existence check that gates re-conversion is not a valid 'conversion succeeded' signal -- any interruption between file-open and subprocess completion (SIGKILL/OOM/SIGTERM, or the finding's referenced concurrent-build race) leaves a partial/empty .wav that a subsequent build() call will treat as already-converted (since `wav.exists()` is now True) and silently skip re-conversion. Confirmed this matters in practice: manifests are written last (lines 237-242), and `is_dataset_prepared`-style checks (line ~160-161) gate whether build() is re-invoked at all based on manifest presence, so an interrupted first run (manifests not yet written) legitimately triggers a second build() call that re-enters this same per-file loop and would skip the already-'existing' but corrupt wav file. This is a genuine idempotency/resumability gap, plausible in the HPC/batch-job environments this repo targets (preemption, OOM, disk full).",
+  "verified_by_execution": false
+ },
+ "data-organizer#16": {
+  "id": "data-organizer#16",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Read egs3/librispeech_100/asr/dataset/dataset.py:38-72 in full. Lines 53-58 match the citation exactly: `utt_id, *words = line.split()` / `if not words: continue` and `if not audio_path.is_file(): continue` both skip silently with no logging, no counter, and no warning. The only guard is the aggregate check at line 67 (`if not examples: raise RuntimeError`), which only fires if EVERY example is dropped, not for a partial/handful of skips, so it does not disprove the scenario. This is the actual dataset backing the shipped librispeech_100 recipe (reachable from documented usage, not contrived), and an incomplete extraction or malformed line really does yield a silently smaller dataset with len(dataset) as the only symptom. Confirmed as described; medium severity is appropriate (silent robustness/data-quality issue, not a crash or default-path corruption).",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "egs3-recipes#01": {
+  "id": "egs3-recipes#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Read builder.py in full. Confirmed: prepare_source() (92-134) calls urlretrieve straight to the final archive path with no temp file/atomic rename (124-125), and is_source_prepared() (64-90) only checks `(an4/etc).is_dir() and (an4/wav).is_dir()`, no size/content validation. Critically, prepare_source() itself has an early-return short-circuit at 128-129 (`if self.is_source_prepared(...): return`) BEFORE extraction runs -- so if a prior run was killed mid-tar-extraction (not just mid-download) and happened to leave both an4/etc and an4/wav present but incomplete, the next invocation returns immediately without ever completing extraction, and BaseSystem.create_dataset() (espnet3/systems/base/system.py:267-268) only calls prepare_source() when `not builder.is_source_prepared(...)`, so the caller also skips straight past to build() on incomplete data. This confirms the core claim (existence-only completeness check + non-atomic write = idempotency hazard on interruption) even more directly than the download-truncation framing suggests. Matches 'distributed/idempotency bug' -> high.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "egs3-recipes#02": {
+  "id": "egs3-recipes#02",
+  "verdict": "corrected",
+  "severity": "medium",
+  "reasoning": "Confirmed the mechanism exactly: TEMPLATE/asr/conf/training.yaml:46-53 documents the func hook ('The function is resolved from create_dataset.func...'), and espnet3/systems/base/system.py:236-271 shows create_dataset_config is only ever consumed as `default_builder_kwargs = dict(create_dataset_config)` (239) then spread as `**builder_kwargs` into is_source_prepared/prepare_source/is_built/build (267-271) on a DatasetBuilder loaded via load_dataset_module()+dataset/__init__.py -- `func` is never read as a callable anywhere; grep confirms no other consumer. So the hook is genuinely dead. However this only misleads someone starting a brand-new recipe from TEMPLATE with no dataset/__init__.py of their own; both shipped recipes (mini_an4, librispeech_100) use the real DatasetBuilder mechanism and are unaffected, and a new-recipe author who follows the doc literally would hit a loud, diagnosable failure (load_dataset_module() erroring because no DatasetBuilder module exists) rather than silent corruption. That fits the rubric's own listed medium example ('docs mismatch') better than high, which the rubric reserves for crashes/wrong-results on a realistic *already-working* path or distributed/idempotency bugs. Downgrading severity from high to medium; the rest of the finding (summary/scenario/lines/fix) is accurate as written.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "egs3-recipes#03": {
+  "id": "egs3-recipes#03",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Verified readme.md:13-14 verbatim: '# 1) Convert LibriSpeech to Hugging Face format (run once)'. Confirmed contrast: librispeech_100/asr/readme.md opens with 'Place the corpus under download/LibriSpeech...' and its own Quick start skips create_dataset entirely, and librispeech_100's actual builder only validates presence of raw directories (no HF conversion of any kind), matching the finding's characterization. This is stale/copy-pasted text in the generic TEMPLATE that doesn't match any real recipe's behavior. Docs-mismatch, medium as originally assessed.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#01": {
+  "id": "lightning-module#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Read lightning_module.py:915-977 in full; code matches the citation exactly: `if state.accum_counter == 0: optimizer.zero_grad()` (951-952) then `self.manual_backward(step.loss / spec.accum_grad_steps)` (954) with no `inputs=` restriction and no zeroing of other optimizers' grads before this backward. This is basic autograd semantics: backward() populates .grad on every leaf tensor reachable in the graph, not just the parameters the current optimizer will step. Confirmed this is the documented, intended use case, not contrived misuse: the module's own docstring (lines 126-146) describes exactly a GAN generator/discriminator path with `OptimizationStep(loss=g_loss, name='generator')` / `discriminator`, and TEMPLATE/asr/conf/training.yaml:143-163 documents accum_grad_steps/step_every_n_iters per-optimizer for a generator/discriminator pair -- the standard GAN setup where g_loss backprops through D. So a discriminator step whose accum_counter isn't 0 really does silently absorb generator-loss gradient contamination into D's .grad before D's own zero_grad/step. Matches 'wrong result in a realistic configured path' -> high, as originally assessed.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#02": {
+  "id": "lightning-module#02",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Read lightning_module.py:954-961 and OptimizerSpec defaults (542-553: accum_grad_steps=1, step_every_n_iters=1 by default -- bug only manifests when a user configures step_every_n_iters>1, which TEMPLATE explicitly documents as a supported per-optimizer field for the GAN case, lines 152-153/162-163). Code confirmed exactly as cited: `meets_accum = state.accum_counter >= spec.accum_grad_steps; meets_iter = (batch_idx+1) % spec.step_every_n_iters == 0; if not (meets_accum and meets_iter): continue` -- the counter is not reset and no backward is skipped on the gated iterations, only the optimizer.step() is gated. Loss is only divided by accum_grad_steps (954), never by step_every_n_iters, so gradients from step_every_n_iters micro-batches sum unscaled before a single optimizer.step(), which is a real, silent effective-LR inflation whenever step_every_n_iters>1 is used as documented. High severity confirmed (wrong result in a realistic configured/documented path).",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#03": {
+  "id": "lightning-module#03",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Verified the full chain. TEMPLATE and all four mini_an4 ASR configs (training_asr_transformer.yaml, training_asr_transducer.yaml, training_asr_transformer_split_preprocessor.yaml, training_asr_streaming.yaml -- confirmed via grep) set `init: xavier_uniform` at the TOP level, a sibling of `trainer:`, not nested inside it. espnet3/systems/base/training.py's `_build_trainer()` passes `config=config.trainer` (not the full config) into ESPnet3LightningTrainer, so trainer.py:74 `getattr(self.config, 'init', None)` reads config.trainer.init, which is always None -- `initialize()` is never called. Separately, get_espnet_model (task_utils.py:39-57) only merges `config.model` into the task's default_config and calls build_model on it; it never forwards the top-level init, so the espnet2-native `args.init` path (asr/task.py:659, transducer_task.py:422) is also never populated from this config. Also confirmed the 'conversely' claim: _del_config_key_on only strips accelerator/strategy/logger/profiler/plugins/callbacks (trainer.py:139-147), not init, so moving init under trainer: would make `lightning.Trainer(**trainer_config)` raise TypeError. Every documented/shipped mini_an4 ASR config is silently training with default (non-xavier) init despite the comment 'Xavier init is used to stabilize this transformer baseline.' High severity confirmed as a real, silent training-quality bug in the shipped example recipes' documented config path.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#04": {
+  "id": "lightning-module#04",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed the code at lines 220-231 (`_sync2skip`) exactly as cited: `if self.config.num_device == 1: any_invalid = flag_skip else: ... all_gather ...`. self.config here is the FULL top-level config (ESPnetLightningModule is constructed as `ESPnetLightningModule(model, config)` in training.py, unlike the trainer which gets `config.trainer`), so `num_device` is the per-node device count from TEMPLATE's `num_device: 1` / `num_nodes: 1` fields, not the actual DDP world size. With num_device=1 and num_nodes=2 (a realistic multi-node, one-GPU-per-node SLURM-style config, directly expressible via the documented `num_device`/`num_nodes` fields and `trainer.num_nodes: ${num_nodes}`), each of the 2 ranks independently takes the `num_device == 1` branch and skips the collective entirely, even though real distributed training (world_size=2) is happening. A NaN on one rank then returns None from training_step (skipping backward on that rank) while the other rank proceeds to backward(), which triggers DDP's automatic gradient all-reduce and blocks waiting for the skipped rank's contribution that never arrives -- a genuine deadlock. This matches the rubric's 'distributed/idempotency bug' -> high severity, confirmed as originally assessed.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#05": {
+  "id": "lightning-module#05",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed lines 705-711 exactly: `self._optimizer_states = {spec.name: OptimizerRuntimeState() for spec in self._optimizer_specs}` inside configure_optimizers (multi-optimizer branch), and on_load_checkpoint (1111-1123) assigns `self._optimizer_states` from the checkpoint. Verified against the installed lightning==2.6.5 in this env: Trainer._run (trainer.py:1044-1053) calls `self._checkpoint_connector._restore_modules_and_callbacks(ckpt_path)` -> checkpoint_connector.py:283 `call._call_lightning_module_hook(trainer, 'on_load_checkpoint', ...)` BEFORE `self.strategy.setup(self)` (trainer.py:1053), and base Strategy.restore_checkpoint_after_setup (strategy.py:449-455) defaults to False (only FSDP/DeepSpeed/ModelParallel override it True), and Strategy.setup (strategy.py:141-160) calls setup_optimizers -> configure_optimizers for FITTING. So for default strategies (single-device, DDP, etc.) on_load_checkpoint really does run before configure_optimizers, and configure_optimizers really does clobber the restored dict with fresh state unconditionally. Practical impact is real but narrower than 'discarded' implies: accum_counter resets to 0, which is actually the functionally-correct thing to do since raw .grad buffers are never checkpointed/restored anyway (no leftover backward can be resumed); update_step resets to 0, which only affects the logged `train/<name>/update_step` metric naming/continuity, not scheduler or optimizer correctness (schedulers keep their own Lightning-restored state_dict independently). So this is a real bug but its damage is confined to a misleading/discontinuous logging counter across resumes, matching 'medium' (misleading, not silently-wrong training).",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#06": {
+  "id": "lightning-module#06",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed the full mechanism by reading _run_multi_optimizer_updates (940-977) and on_train_epoch_end (1043-1086) in full. Traced the exact failure: if the last batch of an epoch leaves `state.accum_counter=1` (accum_grad_steps=2, odd batch count, or any accum_grad_steps/step_every_n_iters not dividing the epoch's batch count), on_train_epoch_end never resets accum_counter or zeros grads -- it only steps epoch-interval schedulers (1043-1086), nothing else. At epoch e+1 batch 0, `if state.accum_counter == 0: optimizer.zero_grad()` (951-952) is skipped because accum_counter is still 1 (not 0), so epoch e's leftover .grad tensors are still populated and epoch e+1 batch 0's manual_backward() ADDS onto them (autograd accumulates, doesn't replace); accum_counter increments to 2, meets_accum/meets_iter fire, and optimizer.step() applies a gradient that silently mixes two different epochs' batches together, scaled as if it were a normal 2-step accumulation. This requires no misuse beyond a completely ordinary and well-documented config (accum_grad_steps>1 or step_every_n_iters>1, both explicitly supported per-optimizer fields in TEMPLATE/asr/conf/training.yaml:151-152/161-162) combined with a dataset whose per-epoch batch count isn't an exact multiple of the accumulation window (the common case). This silently corrupts a training step's gradient on every epoch boundary in that configuration, independent of and in addition to the separate resume-related state finding (#05) -- upgrading severity from medium to high per 'wrong result in a realistic configured path'.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#07": {
+  "id": "lightning-module#07",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed code at lines 1072-1078 (`metric = self.trainer.callback_metrics.get(spec.monitor); if metric is None: raise RuntimeError(...)`) with no guard for 'validation hasn't run yet'. Verified the scenario is genuinely reachable: with `trainer.check_val_every_n_epoch: 2` (an entirely standard, common Lightning Trainer setting, unrelated to any GAN-specific config), Lightning's validation loop runs only when `(current_epoch+1) % check_val_every_n_epoch == 0`, so epoch 0 (the very first training epoch) ends with validation never having run even once -- callback_metrics genuinely lacks the key (not just stale), so `.get()` returns None and the RuntimeError fires immediately after a full first training epoch's compute. One nuance in the finding's comparison to 'Lightning's own plateau handling': checked lightning's training_epoch_loop.py:_update_learning_rates (462-513) -- the single-optimizer-path behavior actually depends on `LRSchedulerConfig.strict`, which defaults to True (utilities/types.py:94), so Lightning's own automatic path would ALSO raise MisconfigurationException in the identical situation by default, not silently skip; it 'skips' only if the user explicitly sets `strict: false` in the returned scheduler config dict. ESPnet3's own single-path branch (lines ~630-650) never sets 'strict' either, so both ESPnet3 paths inherit Lightning's strict=True default today. This doesn't change the core finding (the multi-path crash is real and reachable via a plainly ordinary trainer setting) but the 'Lightning skips, ESPnet3 doesn't' framing is not quite accurate -- keeping verdict as confirmed since the underlying scenario and fix recommendation stand; upgrading severity from medium to high since this is a crash triggered by an unremarkable, realistic trainer config (not requiring any misuse of the GAN-specific fields themselves).",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#08": {
+  "id": "lightning-module#08",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed every cited fact: TEMPLATE/asr/conf/training.yaml:194-197 hard-codes `best_model_criterion: [[valid/loss, 3, min]]`; espnet3/components/trainers/trainer.py:66-67 defaults to the identical `ListConfig([('valid/loss', 3, 'min')])` when unset; lightning_module.py _step (990-1032) confirms the multi-optimizer valid-mode path only ever logs `{step.name}/loss` (i.e. valid/generator/loss, valid/discriminator/loss) and never 'valid/loss'; default_callbacks.py:477-492 wires monitor=that value straight into ModelCheckpoint. Verified against the installed lightning==2.6.5: ModelCheckpoint._save_topk_checkpoint (model_checkpoint.py:574-589) raises MisconfigurationException specifically when `trainer.fit_loop.epoch_loop.val_loop._has_run` is True and the monitor key is absent from monitor_candidates -- i.e. exactly 'after the first validation epoch' as claimed, not on epoch 0 before any validation (unlike #07, which fires via on_train_epoch_end regardless of val_loop._has_run). This is a real crash reachable by literally following the TEMPLATE's own commented GAN example without also editing best_model_criterion, which nothing in the template flags. Keeping medium: it requires the user to adopt one documented block (multi-optimizer/scheduler) while leaving another documented default (best_model_criterion) untouched -- a 'docs mismatch / misleading error' scenario per the medium rubric, rather than a crash on an otherwise-untouched, fully generic config.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#09": {
+  "id": "lightning-module#09",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed egs3/TEMPLATE/tts/conf/training.yaml:46-49 ships `optimizer:`, `scheduler:`, `scheduler_interval:`, `scheduler_monitor:` all blank (verified via grep), intentionally left null for a concrete TTS recipe to fill in per the file's own header comment. Confirmed lightning_module.py:640-646 exactly as cited: `interval = str(getattr(self.config, 'scheduler_interval', 'step'))` -- since OmegaConf keeps the key present with value None (not absent), getattr's default of 'step' never applies, so str(None) == 'None', which fails the `{'step','epoch'}` membership check and raises AssertionError. Confirmed the ASR template avoids this only by hard-coding `scheduler_interval: step` inline (training.yaml:141) with an explicit `# step or epoch` comment, while the TTS template has no such inline guidance next to the blank field, making it an easy field to leave untouched when filling in only optimizer/scheduler for a new TTS recipe. No currently-shipped TTS recipe exists yet under egs3 (only TEMPLATE), so this is not yet triggered by any real recipe, but it is a genuine landmine for the documented, intended usage path. Medium severity fits: a docs/template gap with a concrete, easy-to-hit misuse path, not a currently-active production bug.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#10": {
+  "id": "lightning-module#10",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed all three cited mechanisms. Single path (622-624): branch only entered if BOTH `optimizer` and `scheduler` are truthy; a constant-LR use case (optimizer set, scheduler null) falls through. Multi path (664-711): only entered if both `optimizers` and `schedulers` truthy. Fallthrough (713-716) raises the exact cited ValueError text with the missing-space typo: `'...and `scheduler` or' + '`schedulers`'` concatenates to '...or`schedulers`'. Confirmed the sharper claim about __init__: `self.automatic_optimization = getattr(self.config, 'optimizers', None) is None` (line 205) is set purely from whether `optimizers` (plural) is present, independent of `schedulers` -- so a config with `optimizers:` set and `schedulers:` omitted has ALREADY committed the module to manual optimization in __init__, then immediately hits the generic, unhelpful ValueError in configure_optimizers with no indication that only `schedulers` was the problem. This is a real, confirmed design/usability gap (forces a scheduler for every optimizer path, with a genuinely confusing error when only one half of an optimizer/scheduler pair is supplied). Medium severity matches: design debt with a concrete, easily-reached misuse path, not silent corruption or an unavoidable crash on a fully-correct config.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#11": {
+  "id": "lightning-module#11",
+  "verdict": "confirmed",
+  "severity": "high",
+  "reasoning": "Confirmed ema.py:130-136 exactly: on_validation_start -> _swap_in_ema, on_validation_end -> _restore_online. Verified against installed lightning==2.6.5's callback_connector.py:_reorder_callbacks (240-264): callbacks are partitioned into tuner/other/checkpoint groups and reassembled as `tuner_callbacks + other_callbacks + checkpoint_callbacks` -- ModelCheckpoint (a Checkpoint subclass) is unconditionally moved to the end regardless of user-specified callback order, confirmed via isinstance check against the `Checkpoint` base class. So EMACallback.on_validation_end (restoring online weights) always fires before any ModelCheckpoint.on_validation_end (which saves via `trainer.save_checkpoint` -> pl_module.state_dict()). Confirmed lightning_module.py:1162-1164 `state_dict()` returns `self.model.state_dict()` -- i.e. whatever is currently loaded into the online model, which is the just-restored online weights by the time ModelCheckpoint saves, not the EMA weights that produced the validation metric used to rank/select that checkpoint. This is a genuine silent mismatch between 'the weights that earned this checkpoint's rank' and 'the weights actually saved in it', reachable by the ordinary, presumably-intended combination of EMACallback + best-k ModelCheckpoint (no misuse required beyond using EMA at all). Upgrading severity from medium to high: this is a silently-wrong result (best checkpoints don't contain the weights they were selected for) in a realistic, intentional configuration.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "lightning-module#17": {
+  "id": "lightning-module#17",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "reasoning": "Confirmed test/espnet3/components/modeling/test_model_with_optim_scheduler.py:787-806 verbatim: T1 (`restored.configure_optimizers()` at what is now line ~801) runs before T2 (`restored.on_load_checkpoint(checkpoint)` at ~802), the reverse of the real Lightning resume order verified in #05 (on_load_checkpoint before configure_optimizers for default strategies). Because configure_optimizers unconditionally resets `self._optimizer_states` (lines 706-708), calling it first and on_load_checkpoint second means on_load_checkpoint's assignment (1116-1120) is the last write and 'wins' in the test, masking the real production bug where configure_optimizers is the last write and wins instead. This is a real test-quality gap: the test's assertions (`update_step == 1`, `accum_counter == 0`) pass today, but would also pass if configure_optimizers's reset were removed entirely, so it provides no actual regression protection for the resume path it claims to test. Medium severity: it's a test correctness/coverage gap that lets a real (medium-severity, per #05) production bug go undetected, not itself a production-facing defect.",
+  "verified_by_execution": false,
+  "corrected_summary": null,
+  "corrected_scenario": null,
+  "corrected_lines": null,
+  "corrected_fix": null
+ },
+ "metrics#01": {
+  "id": "metrics#01",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": true,
+  "reasoning": "Traced the full config pipeline: egs3/TEMPLATE/asr/run.py calls load_and_merge_config(args.inference_config, ...) which returns None when --inference_config is not passed (config_utils.py:390-391 'if config_path is None: return None'). apply_training_experiment_context only copies inference_dir into metrics_config when 'inference_config is not None and metrics_config is not None' (run_utils.py:389-397); with only --training_config/--metrics_config it copies exp_tag/exp_dir alone. validate_experiment_context returns immediately whenever training_config is not None (run_utils.py:505-506), so no check ever runs for the training-backed 'measure' path. None of egs3/TEMPLATE/asr, mini_an4/asr, or librispeech_100/asr conf/metrics.yaml define an actual inference_dir key (grep confirms it only appears in comments). measure()->_resolve_test_sets does 'Path(metrics_config.inference_dir)' (metric.py:24) with plain attribute access; reproduced with OmegaConf.create({'exp_tag':'x','exp_dir':'./exp/x'}).inference_dir -> ConfigAttributeError: Missing key inference_dir, matching the claim exactly. egs3/librispeech_100/asr/readme.md's own 3-step quick start runs exactly this invocation for step 3. Confirmed as described."
+ },
+ "metrics#02": {
+  "id": "metrics#02",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Read base_metric.py:132-161 verbatim: 'assert not finished_keys' (151) and 'assert rows[key][0] == utt_id' (157) are the only guards against SCP misalignment, and metric.py:76 uses 'assert hasattr(...)' for the same kind of trust-boundary input validation. Python's `-O`/PYTHONOPTIMIZE strips all assert statements (well-established CPython semantics; a hyp/ref swap of equal length would then silently pass through with no length/UID check at all). Did not re-execute the -O repro myself (unnecessary given -O's documented behavior), but the code shape fully supports the claim. Real robustness gap, though it requires the somewhat uncommon `-O` flag to manifest, matching the original medium severity."
+ },
+ "metrics#03": {
+  "id": "metrics#03",
+  "verdict": "corrected",
+  "severity": "low",
+  "verified_by_execution": false,
+  "corrected_summary": "wer.py/cer.py/ter.py report a perfect score for a 0-utterance test set with no error, but this is reachable only through externally forged/manually-truncated SCP files, not through espnet3's own infer stage.",
+  "corrected_scenario": "Same code defect as described, but note InferenceRunner.merge (inference_runner.py:365-388) raises RuntimeError('No output keys found in inference results.') when no shard produced any field output, and inference.py:186 raises 'Test dataset is empty' before running the model -- so the documented infer->measure pipeline can never itself hand an empty ref.scp/hyp.scp to measure(). The scenario is real only for hand-crafted/foreign SCP files dropped into inference_dir, which the original finding itself acknowledges ('reachable mainly through externally produced files').",
+  "corrected_lines": null,
+  "corrected_fix": null,
+  "reasoning": "Confirmed wer.py:104-118 (and cer.py/ter.py by inspection of the same pattern) never check `if not refs`, so jiwer.wer([],[])==0 would indeed be reported as WER:0. However, verified the normal pipeline can't produce that input (see corrected_scenario), so this is a real but narrow/contrived-misuse edge case, not a bug reachable from documented recipe usage. Downgrading from medium to low."
+ },
+ "metrics#04": {
+  "id": "metrics#04",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Verified metric.py:78-109 verbatim: `results[get_class_path(metric)] = {}` is reset on every iteration of the outer `for idx, metric_config in enumerate(metrics_config.metrics)` loop, and wer.py:115 area always writes to the fixed filename `test_dir / \"wer_alignment\"`. Two metric entries using the same class (e.g. WER with clean_types vs without, or WER against top-1 vs n-best hyp via the `inputs:` mechanism the base_metric.py docstring explicitly documents at lines 30-49) silently overwrite each other's entry in metrics.json/README and clobber each other's alignment file, with no error or warning. This is a real, silent-data-loss bug reachable through the documented multi-input extension mechanism, not just contrived misuse, so I raise severity from medium to high (silently wrong/incomplete published eval results)."
+ },
+ "metrics#05": {
+  "id": "metrics#05",
+  "verdict": "confirmed",
+  "severity": "high",
+  "verified_by_execution": false,
+  "reasoning": "Verified metric.py:17-39 (_resolve_test_sets) scans inference_dir subdirectories whenever metrics_config.dataset.test is absent, and confirmed none of the shipped ASR metrics.yaml files (TEMPLATE/mini_an4/librispeech_100) define `dataset`, so the scan path is always used as claimed. Verified inference.py:134-135 creates `output_dir = Path(config.inference_dir)/test_name` and mkdir's it *before* `provider.build_dataset(config)` at line 182 and before the empty-dataset check at line 186 -- so a failed/empty test set leaves a stray directory with no SCP files. Verified load_scp_paths (scp_utils.py) raises AssertionError when a required file is missing, and measure()'s test_sets loop (metric.py) is not wrapped per-test-set, so one stray/failed directory aborts the whole stage and metrics.json is never written for *any* test set -- a real crash in a realistic retry-after-partial-failure scenario. The stale-directory inclusion (scenario a) is also real and reachable through ordinary iterative recipe development (changing dataset.test between infer runs). Raising severity from medium to high since scenario (b) is a full-stage crash in a plausible configured/retry path."
+ },
+ "metrics#06": {
+  "id": "metrics#06",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Verified base_metric.py:12-14 declares `def __call__(self, data: Dict[str, Path], test_name: str, output_dir: Path)` and the docstring at line 51 repeats 'output_dir (Path)'. Verified metric.py:108 calls `metric(data, test_name, metrics_config.inference_dir)` where inference_dir is a YAML string (never wrapped in Path()), and wer.py's own __call__ signature renames the parameter to `inference_dir` and does `Path(inference_dir) / test_name` at line 113 specifically because the incoming value isn't already a Path. A third-party metric written literally to the ABC's documented contract (using `output_dir / test_name` directly) would break with a TypeError. Confirmed as described; medium severity is appropriate since shipped metrics all work around it already."
+ },
+ "metrics#07": {
+  "id": "metrics#07",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": true,
+  "reasoning": "Verified metric.py:76,78 uses `assert hasattr(metrics_config, \"metrics\")` then `enumerate(metrics_config.metrics)`. Verified egs3/TEMPLATE/tts/conf/metrics.yaml:13-15 sets both `dataset:` and `metrics:` to null. Reproduced directly: OmegaConf.create({'metrics': None}) -> hasattr(...,'metrics') is True, and enumerate(None) raises TypeError: 'NoneType' object is not iterable, exactly as claimed. Note: no concrete TTS recipe (e.g. egs3/<corpus>/tts) exists yet in this tree, so the bug is currently latent in the template rather than triggered by any shipped recipe -- but it is real shipped code that will bite the first TTS recipe that doesn't override `metrics`. Keeping medium severity."
+ },
+ "misc-utils#01": {
+  "id": "misc-utils#01",
+  "verdict": "confirmed",
+  "severity": "medium",
+  "verified_by_execution": false,
+  "reasoning": "Verified writer_utils.py:155-156 branches to `_run_custom_writer` and returns immediately whenever `writer_cfg is not None`, never reaching `_write_builtin_artifact`'s CUDA check at line 214-215 (`if value.is_cuda: raise ValueError(...)`). Verified `_run_custom_writer` (line 192+) calls the user writer with the raw `value` and no device check. Verified inference_runner.py:39-88 `_materialize_output_value` forwards torch.Tensor values straight into write_artifact with no .cpu()/.detach() call for non-scalar tensors. The custom `writer:` mechanism is real documented API surface (shown as a commented example in egs3/TEMPLATE/asr/conf/inference.yaml:151), so the gap is genuine, not hypothetical. Downgrading from the original 'high' framing to medium: the writer: field is opt-in and off by default in every shipped recipe, and triggering an actual problem additionally requires the recipe's own output function to forget to move a tensor off GPU, so this is a real but narrow-audience robustness/docs gap rather than a default-path issue."
+ }
+}

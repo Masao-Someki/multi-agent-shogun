@@ -1,0 +1,355 @@
+{
+  "area": "lightning-module",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/components/modeling/lightning_module.py",
+      "espnet3/components/modeling/optimization_spec.py",
+      "egs3/TEMPLATE/asr/conf/training.yaml",
+      "test/espnet3/components/modeling/test_model.py",
+      "test/espnet3/components/modeling/test_model_with_optim_scheduler.py",
+      "test/espnet3/components/modeling/test_optimization_spec.py",
+      "espnet3/systems/base/training.py",
+      "espnet3/components/trainers/trainer.py",
+      "espnet3/components/callbacks/default_callbacks.py"
+    ],
+    "files_skimmed": [
+      "espnet3/components/callbacks/ema.py (L50-80, 105-144)",
+      "egs3/TEMPLATE/tts/conf/training.yaml (L30-62)",
+      "espnet3/utils/task_utils.py (L39-58)",
+      "espnet3/components/data/dataloader.py (grep only)",
+      "lightning 2.6.1 trainer.py/_run, checkpoint_connector.restore_model, callback_connector._reorder_callbacks, configuration_validator (grep/sed)"
+    ],
+    "files_not_read": [
+      "espnet3/components/callbacks/vendored_ema.py",
+      "espnet3/components/data/dataloader.py (full)",
+      "espnet3/components/data/dataset.py"
+    ],
+    "tests_inspected": [
+      "test/espnet3/components/modeling/test_model.py",
+      "test/espnet3/components/modeling/test_model_with_optim_scheduler.py",
+      "test/espnet3/components/modeling/test_optimization_spec.py"
+    ],
+    "notes": "Checked and OK: state_dict/load_state_dict forwarding is symmetric with Lightning's checkpoint['state_dict'] and AverageCheckpointsCallback handles both prefixed and unprefixed keys; init is applied in trainer __init__ before fit so a resumed checkpoint correctly overrides it (when init is actually read, see finding); seed_everything runs before model instantiation in train/collect_stats; Lightning runs validation before the LightningModule on_train_epoch_end hook with check_val_every_n_epoch=1 so monitored epoch schedulers see fresh valid/* values in the default TEMPLATE; valid/* metrics are logged with sync_dist=True so all ranks step monitored schedulers identically; clip_gradients/zero_grad on LightningOptimizer is the documented manual-optimization usage; Lightning itself rejects accumulate_grad_batches!=1 and trainer gradient_clip_val>0 under manual optimization (configuration_validator L122-131) so ESPnet3's duplicate check is consistent; step_every_n_iters uses (batch_idx+1) so there is no off-by-one at iteration 0; _param_name_matches_selector correctly excludes frozen params and rejects overlaps; NaN skip returns None which Lightning treats as skip-step in automatic optimization. Not verified (no multi-GPU here): (a) DDP with strategy 'auto' defaults to find_unused_parameters=False since Lightning 2.0, so GAN-style multi-backward where d_loss does not touch generator params will error unless strategy ddp_find_unused_parameters_true is chosen -- trainer._validate_strategy_compatibility only rejects DeepSpeed; (b) _sync2skip runs a barrier+all_gather per validation batch, so uneven per-rank shard sizes from DataLoaderBuilder._maybe_shard_dataset would deadlock validation; (c) weight=None in the multi path makes Lightning infer batch_size from the (uids, dict) batch with a warning. Minor nits not filed: nan_countdown resets to 1 on success but starts at 0 (threshold differs by one on the first run) and is shared between train and validation; load_state_dict drops PyTorch's `assign` kwarg; _log_stats calls .item() per stat per step (GPU sync). Reproduction script: SCRATCH/lightning-module/verify_manual_opt.py."
+  },
+  "assumptions": [
+    "Lightning 2.6.1 / torch 2.10 semantics as installed in this environment (hook order in Trainer._run, ModelCheckpoint reordering, manual-optimization validators).",
+    "ESPnet2-style models return scalar `stats` and a batch-size `weight`, as in mini_an4 recipes.",
+    "DDP strategy default (restore_checkpoint_after_setup=False) for the resume-order finding; FSDP restores after setup and is not affected by that finding."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "951-956",
+      "category": "bug",
+      "severity": "high",
+      "summary": "In the multi-optimizer path, manual_backward(step.loss) deposits gradients into every parameter reachable from that loss, and other optimizers' grads are only zeroed when their own accum_counter is 0, so a mid-accumulation optimizer silently absorbs another loss's gradient.",
+      "scenario": "Documented GAN setup (g_loss = D(G(x)) backprops through D) with discriminator accum_grad_steps: 2 (or step_every_n_iters: 2). Batch 0: D counter 0 -> zero_grad clears the spurious dg/dD, D grad correct. Batch 1: D counter is 1 so no zero_grad; generator step runs manual_backward(g_loss) which adds dg_loss/dD into D.grad; then d_loss/2 is added and optimizer.step applies grad = d_loss_grad + dg_loss/dD. Verified: D.grad at step == pure d_loss grad -> False; (D.grad - pure) == dg_loss/dD -> True (values [0.625,0.055] vs pure [0.4,0.6]).",
+      "evidence": "L951-955: `if state.accum_counter == 0: optimizer.zero_grad()` then `self.manual_backward(step.loss / spec.accum_grad_steps)` -- backward is not restricted to the named optimizer's params; L972 zero_grad only after a step. TEMPLATE training.yaml L145-163 documents accum_grad_steps/step_every_n_iters per optimizer for exactly this GAN case.",
+      "suggested_fix": "Restrict the backward to the selected parameters: `self.manual_backward(loss, inputs=self._params_for(step.name))` (torch backward(inputs=...) accumulates only into those leaves), or zero_grad the params of all *other* optimizers before each backward and document that models must detach cross-branch inputs.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "espnet3/components/modeling/optimization_spec.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "955-961",
+      "category": "bug",
+      "severity": "high",
+      "summary": "step_every_n_iters keeps calling backward on every iteration and only gates optimizer.step, so gradients from N iterations are summed with no 1/N scaling (loss is divided by accum_grad_steps only); the TEMPLATE describes it as 'only step on every N-th training iteration'.",
+      "scenario": "optimizers.discriminator.step_every_n_iters: 2, accum_grad_steps: 1 (TEMPLATE-style). Batch 0: backward, counter=1, meets_accum True, meets_iter False -> continue (grad kept). Batch 1: backward again, step. Verified: gradient at step / single-batch gradient = [2.22, 1.72] (2x plus the contamination term from the previous finding); effective learning rate is doubled. With step_every_n_iters 3 and accum_grad_steps 2, three micro-batches scaled by 1/2 are applied (1.5x).",
+      "evidence": "L954 `self.manual_backward(step.loss / spec.accum_grad_steps)`; L958-961 `meets_accum = state.accum_counter >= spec.accum_grad_steps; meets_iter = (batch_idx + 1) % spec.step_every_n_iters == 0; if not (meets_accum and meets_iter): continue` -- the counter is not reset and grads are not dropped on the skipped iterations. TEMPLATE L152-153: 'accum_grad_steps: number of backward passes before optimizer.step()' / 'step_every_n_iters: only step on every N-th training iteration'.",
+      "suggested_fix": "Either make skipped iterations true no-ops (skip backward for that optimizer when the iteration gate is not met) or scale the loss by 1/(accum_grad_steps*step_every_n_iters) and document that step_every_n_iters accumulates. Add a test asserting gradient magnitude for step_every_n_iters=2.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "espnet3/components/modeling/optimization_spec.py"
+      ],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/components/trainers/trainer.py",
+      "lines": "74-75",
+      "category": "bug",
+      "severity": "high",
+      "summary": "Top-level `init:` (documented in the TEMPLATE and set to xavier_uniform in all four mini_an4 ASR recipes) is never applied: the trainer reads `init` from config.trainer, and get_espnet_model only forwards `model` so the task's own `args.init` stays None.",
+      "scenario": "egs3/mini_an4/asr/conf/training_asr_transformer.yaml L127 `init: xavier_uniform` (top-level). training.py L33-37 builds ESPnet3LightningTrainer(config=config.trainer); trainer.py L74 `getattr(self.config, 'init', None)` -> config.trainer has no `init` -> initialize() never called. get_espnet_model (task_utils.py L39-56) merges only config.model into the task defaults, so espnet3/systems/asr/task.py L659 `if args.init is not None` is also False. Result: every mini_an4 model trains with PyTorch default init while the config says xavier_uniform. Conversely, moving `init` under `trainer:` makes `lightning.Trainer(**trainer_config)` (L152-161) raise TypeError because _del_config_key_on does not strip it.",
+      "evidence": "trainer.py L74-75: `if getattr(self.config, 'init', None) is not None: initialize(self.model, self.config.init)` with self.config = config.trainer (training.py L37). grep for other readers of a top-level `init` in espnet3/: none (only espnet2-style `args.init` inside task.build_model).",
+      "suggested_fix": "Pass the top-level init explicitly: `ESPnet3LightningTrainer(..., init=config.get('init'))` in training.py and apply it there (before fit so a resumed checkpoint still overrides it), or forward `init` into the model config for the task path. Remove the misleading `init:` entry from the TEMPLATE otherwise.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/systems/base/training.py",
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "egs3/mini_an4/asr/conf/training_asr_transformer.yaml",
+        "espnet3/utils/task_utils.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "220-222",
+      "category": "bug",
+      "severity": "high",
+      "summary": "_sync2skip decides whether to run the NaN-skip collective from config.num_device == 1, which is the per-node device count; with num_nodes > 1 and one device per node each rank decides independently and a NaN on one rank leaves the others blocked in DDP all-reduce.",
+      "scenario": "TEMPLATE training.yaml L17-18 num_device: 1, num_nodes: 2 (trainer.num_nodes: ${num_nodes}). Rank 0 gets a NaN loss, returns None from training_step (no backward); rank 1 has a finite loss and runs backward -> DDP gradient all-reduce waits forever for rank 0. The same test at L1005-1006 also runs in validation_step, so any per-rank NaN in validation desynchronises ranks too.",
+      "evidence": "L220-222: `if self.config.num_device == 1: any_invalid = flag_skip else: world_size = torch.distributed.get_world_size(); torch.distributed.barrier(); ...`.",
+      "suggested_fix": "Use `torch.distributed.is_available() and torch.distributed.is_initialized() and self.trainer.world_size > 1` (or `self.trainer.strategy.reduce`) instead of the config value; drop the redundant barrier before all_gather.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "espnet3/systems/base/training.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "705-711",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "configure_optimizers re-creates self._optimizer_states with fresh counters after Lightning has already called on_load_checkpoint, so the checkpointed accum_counter/update_step are discarded on every resume for default strategies.",
+      "scenario": "Resume a multi-optimizer run with trainer.fit(ckpt_path=last.ckpt). Lightning Trainer._run (2.6.1, trainer.py L1044-1053): `if not self.strategy.restore_checkpoint_after_setup: _restore_modules_and_callbacks(...)` (-> restore_model -> on_load_checkpoint, checkpoint_connector.py L283) happens BEFORE `self.strategy.setup(self)` (-> setup_optimizers -> configure_optimizers). L707-709 then overwrite the restored dict with OptimizerRuntimeState() -> logged train/<name>/update_step restarts at 1. test_checkpoint_restores_runtime_state passes only because it calls configure_optimizers() before on_load_checkpoint(), the reverse of the real order.",
+      "evidence": "L707-709: `self._optimizer_states = {spec.name: OptimizerRuntimeState() for spec in self._optimizer_specs}`; L1117-1123 on_load_checkpoint assigns self._optimizer_states; Lightning order shown above.",
+      "suggested_fix": "In configure_optimizers only create states for names that do not already exist (`self._optimizer_states.setdefault(name, OptimizerRuntimeState())`), or stash the restored dict in on_load_checkpoint and merge after configure. Fix the test to call on_load_checkpoint before configure_optimizers.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/components/modeling/test_model_with_optim_scheduler.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "955-975",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "The manual accumulation window is never flushed at epoch end: a partially accumulated gradient and accum_counter > 0 carry into the next epoch, and the counter is checkpointed at epoch end while the .grad buffers are not.",
+      "scenario": "accum_grad_steps: 2 with an odd number of training batches per epoch. Last batch of epoch e: backward, counter=1, no step. `last_ckpt_callback` (default_callbacks.py L467-474, save_on_train_epoch_end=True) stores accum_counter=1. Without resume the leftover gradient is applied together with epoch e+1 batch 0 (mixing epochs, unlike Lightning's automatic accumulation which steps on the last batch). With resume (once the previous finding is fixed, or already today under FSDP where restore happens after setup) counter=1 is restored with empty grads -> the first step applies one micro-batch scaled by 1/2.",
+      "evidence": "L956 `state.accum_counter += 1`; L958-961 no step unless meets_accum and meets_iter; on_train_epoch_end (L1043-1086) never resets counters or steps pending optimizers; on_save_checkpoint L1103-1110 persists accum_counter.",
+      "suggested_fix": "Flush pending optimizers on the last batch of the epoch (Lightning exposes trainer.is_last_batch) or reset accum_counter and zero_grad in on_train_epoch_end; on load, reset accum_counter to 0 since gradients are not restored.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/callbacks/default_callbacks.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "1072-1078",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "Monitored epoch schedulers in the multi-optimizer path hard-fail on any training epoch that ends without a validation run, with a message that says the metric 'was not logged'.",
+      "scenario": "schedulers.discriminator: {interval: epoch, monitor: valid/discriminator/loss} (the TEMPLATE example, L173-179) plus trainer.check_val_every_n_epoch: 2, or val_check_interval in steps, or limit_val_batches: 0. At the end of epoch 0 no `valid/*` key is in trainer.callback_metrics -> RuntimeError \"Scheduler 'discriminator' expected monitor 'valid/discriminator/loss', but that metric was not logged.\" Lightning's own plateau handling for the single path skips when validation did not run in that epoch.",
+      "evidence": "L1073-1078: `metric = self.trainer.callback_metrics.get(spec.monitor); if metric is None: raise RuntimeError(...)`.",
+      "suggested_fix": "Skip the monitored step when validation has not run since the last step (e.g. track trainer.fit_loop.epoch_loop.val_loop._has_run or compare a validation counter), and reword the error to mention check_val_every_n_epoch/val_check_interval.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/conf/training.yaml",
+      "lines": "145-198",
+      "category": "design",
+      "severity": "medium",
+      "summary": "The default checkpoint monitor `valid/loss` (TEMPLATE, trainer.py default, default_callbacks default) is incompatible with the documented multi-optimizer stats contract, so following the GAN example crashes after the first validation unless best_model_criterion is also changed, which nothing mentions.",
+      "scenario": "User uncomments the TEMPLATE optimizers/schedulers block (L145-180). Docstring examples (lightning_module.py L127-139, L579-583) return stats {generator_loss, discriminator_loss}; automatic keys are valid/generator/loss and valid/discriminator/loss (L1015-1019). ModelCheckpoint(monitor='valid/loss') (default_callbacks.py L477-492) cannot find the key -> MisconfigurationException at the end of the first validation epoch, after a full training epoch.",
+      "evidence": "TEMPLATE L194-197 best_model_criterion: [[valid/loss, 3, min]]; trainer.py L66-67 default ListConfig([('valid/loss', 3, 'min')]); lightning_module.py L613-616 lists the multi-path metric names without linking them to best_model_criterion.",
+      "suggested_fix": "Validate best_model_criterion monitors against the metric-name contract at trainer construction in the multi path (e.g. require `valid/<name>/loss` or a documented stats key) and add a note next to the TEMPLATE optimizers block.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/trainers/trainer.py",
+        "espnet3/components/callbacks/default_callbacks.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "640-646",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "A blank YAML `scheduler_interval:` (None) is stringified to 'None' and rejected, so the shipped TTS template fails as soon as optimizer/scheduler are filled in unless the user also notices the blank key.",
+      "scenario": "egs3/TEMPLATE/tts/conf/training.yaml L46-49 ships `optimizer:`, `scheduler:`, `scheduler_interval:`, `scheduler_monitor:` all blank. Fill optimizer and scheduler (the documented single path) and run train -> configure_optimizers raises AssertionError \"Single-optimizer-path `scheduler_interval` must be 'step' or 'epoch'.\" because str(None) == 'None'. The ASR template avoids it only by hard-coding `step`.",
+      "evidence": "L640-646: `interval = str(getattr(self.config, 'scheduler_interval', 'step')); if interval not in {'step','epoch'}: raise AssertionError(...)`.",
+      "suggested_fix": "Treat None as the default: `interval = self.config.get('scheduler_interval') or 'step'`.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/tts/conf/training.yaml"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "623-631",
+      "category": "design",
+      "severity": "medium",
+      "summary": "An LR scheduler is mandatory in both paths (single: `optimizer` and `scheduler` must both be truthy; multi: scheduler names must equal optimizer names), and a missing scheduler falls through to a ValueError whose message (with a missing space) claims neither optimizer nor optimizers was given.",
+      "scenario": "Config with `optimizer:` set and `scheduler:` null (constant LR): L623-624 branch skipped, L656-657 skipped, L714-717 raises ValueError 'Must specify either `optimizer` or `optimizers` and `scheduler` or`schedulers`'. Config with `optimizers:` set and no `schedulers:` : __init__ L206 already switched to manual optimization, and the same misleading ValueError is raised. Multi path with one optimizer lacking a scheduler entry -> 'Optimizer and scheduler names must match exactly' (L684-689) forcing a dummy scheduler.",
+      "evidence": "L623-624 `if getattr(self.config, 'optimizer', None) and getattr(self.config, 'scheduler', None)`; L656-657 same for optimizers/schedulers; L714-717 ValueError text `...and `scheduler` or`schedulers``.",
+      "suggested_fix": "Allow a missing scheduler (return just the optimizer / skip scheduler instantiation for unnamed optimizers) or raise a targeted message ('`optimizer` is set but `scheduler` is missing'); fix the message spacing.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [
+        "egs3/TEMPLATE/asr/conf/training.yaml",
+        "egs3/TEMPLATE/tts/conf/training.yaml"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/callbacks/ema.py",
+      "lines": "130-136",
+      "category": "design",
+      "severity": "medium",
+      "summary": "EMACallback swaps EMA weights in for validation and restores online weights in on_validation_end, but Lightning moves ModelCheckpoint callbacks to the end of the callback list, so the best-k checkpoints selected by an EMA-evaluated `valid/loss` contain the online (non-EMA) weights.",
+      "scenario": "callbacks: [EMACallback] appended to the defaults (trainer.py L101-106). Lightning callback_connector._reorder_callbacks puts every ModelCheckpoint last. Validation epoch: EMA on_validation_start swaps EMA in -> metrics computed on EMA weights -> EMA on_validation_end restores online weights -> ModelCheckpoint.on_validation_end saves pl_module.state_dict() (lightning_module.py L1162-1165 -> online model) under a filename/metric that belonged to the EMA weights. AverageCheckpointsCallback then averages those online snapshots; the EMA weights survive only inside last.ckpt['ema_model_state_dict'].",
+      "evidence": "ema.py L130-136 on_validation_start -> _swap_in_ema, on_validation_end -> _restore_online; Lightning 2.6.1 callback_connector.py _reorder_callbacks docstring: 'ModelCheckpoint callbacks to the end of the list'.",
+      "suggested_fix": "Decide and document which weights the best checkpoints should hold; if EMA, restore online weights in on_validation_epoch_end is not enough either (ModelCheckpoint also uses on_validation_end) -- instead have ESPnetLightningModule.state_dict consult the EMA callback, or save EMA weights explicitly from the callback when a ModelCheckpoint fires.",
+      "confidence": 0.65,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py",
+        "espnet3/components/callbacks/default_callbacks.py",
+        "espnet3/components/trainers/trainer.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "613-616",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "The docstring says scheduler `monitor` may be any `train/<stats-key>`, but training stats are logged on_step only, so callback_metrics holds the last batch's value and a plateau scheduler monitoring a train key reacts to single-batch noise, not an epoch aggregate.",
+      "scenario": "schedulers.generator: {interval: epoch, monitor: train/generator/loss}. _log_stats (L355-364) calls log_dict without on_epoch, so in training_step the default is on_step=True/on_epoch=False; on_train_epoch_end L1073 reads callback_metrics['train/generator/loss'] == value of the final batch of the epoch.",
+      "evidence": "L613-616 docstring; L355-365 log_dict kwargs (no on_epoch); L1073.",
+      "suggested_fix": "Either log training stats with on_epoch=True as well or restrict documented monitors to `valid/*` keys.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "egs3/TEMPLATE/asr/conf/training.yaml",
+      "lines": "150-161",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "TEMPLATE comments describe `params` as a 'substring used to select parameters', but the implementation matches on dot-delimited name boundaries, so a genuine substring such as `enc` selects nothing.",
+      "scenario": "params: enc intending to match model.encoder.* -> _param_name_matches_selector('model.encoder.w', 'enc') is False -> AssertionError 'No trainable parameters found for optimizer ...' (L424-428). Names also carry the LightningModule prefix (`model.`), which neither comment mentions.",
+      "evidence": "TEMPLATE L150/L161 '# substring used to select parameters'; lightning_module.py L442-451 pattern rf'(^|\\.){re.escape(selector)}(\\.|$)'.",
+      "suggested_fix": "Reword the TEMPLATE comment to 'dotted module path segment (e.g. encoder or encoder.layer1); matched on `.` boundaries'.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "905-913",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "A step-interval scheduler that also defines `monitor` is rejected only inside _step_named_scheduler_on_update, i.e. after data loading and after the first optimizer.step() has already run.",
+      "scenario": "schedulers.generator: {interval: step, monitor: valid/loss}. SchedulerSpec.validate (optimization_spec.py L190-200) accepts it; configure_optimizers accepts it; first training batch: L971 optimizer.step(), L976 -> L909-913 AssertionError. The first update has been applied and the run dies one batch in.",
+      "evidence": "L907-913; optimization_spec.py L195-200 only checks interval.",
+      "suggested_fix": "Move the check into SchedulerSpec.validate().",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/optimization_spec.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/optimization_spec.py",
+      "lines": "87-94",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "OptimizerSpec.from_config uses hasattr on DictConfig, which is True for blank YAML values, so `accum_grad_steps:` (None) raises a bare TypeError from int(None); a list-valued `params` also reaches re.escape and fails with an unrelated TypeError.",
+      "scenario": "optimizers.generator: {optimizer: ..., params: generator, accum_grad_steps: } -> int(None) TypeError \"int() argument must be a string ... not 'NoneType'\" with no optimizer name; params: [encoder, decoder] -> lightning_module.py L451 re.escape(ListConfig) TypeError.",
+      "evidence": "L87-90 `if hasattr(cfg, 'accum_grad_steps'): spec_kwargs['accum_grad_steps'] = int(cfg.accum_grad_steps)`; L60 `params: str` unchecked.",
+      "suggested_fix": "Use `cfg.get(key)` with `is not None` checks and validate `isinstance(params, str)` (or support a list of selectors) in validate().",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/components/modeling/lightning_module.py",
+      "lines": "719-843",
+      "category": "design",
+      "severity": "low",
+      "summary": "_log_training_summary is dead code in production: its only in-repo call is its own docstring example and a unit test.",
+      "scenario": "grep -rn _log_training_summary espnet3 egs3 -> only lightning_module.py L750 (docstring) and test/espnet3/utils/test_logging.py L270. Neither configure_optimizers nor the trainer calls it, so the documented 'Optimizer[i]/Scheduler[i]' summary is never emitted.",
+      "evidence": "L719-843 definition; no call sites outside docstring/test.",
+      "suggested_fix": "Call it at the end of configure_optimizers (both paths) or remove it.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": [
+        "test/espnet3/utils/test_logging.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/components/modeling/test_model_with_optim_scheduler.py",
+      "lines": "787-806",
+      "category": "test-quality",
+      "severity": "medium",
+      "summary": "test_checkpoint_restores_runtime_state calls configure_optimizers() before on_load_checkpoint(), the reverse of Lightning's real resume order, so it passes while the production path discards the restored state.",
+      "scenario": "Lightning restores the module (on_load_checkpoint) before strategy.setup -> configure_optimizers for default strategies; L803-804 `restored.configure_optimizers(); restored.on_load_checkpoint(checkpoint)` masks the reset at lightning_module.py L707-709.",
+      "evidence": "T2 L800-806.",
+      "suggested_fix": "Swap the two calls (or run a real trainer.fit(ckpt_path=...) with max_epochs=2) and assert update_step survives.",
+      "confidence": 0.9,
+      "test_name": "test_checkpoint_restores_runtime_state",
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/components/modeling/test_model.py",
+      "lines": "196-223",
+      "category": "test-quality",
+      "severity": "low",
+      "summary": "CustomCollate.__call__ is defined without `self`, and test_use_espnet_collator_flag_false never iterates the loader, so the fixture is broken without the test noticing; the flag is asserted but the non-ESPnet collate path (batch shape consumed by _step's batch[1]) is untested.",
+      "scenario": "`def __call__(batch): return {'custom': True}` -> calling the instance raises TypeError(takes 1 positional argument but 2 were given); next(iter(model.train_dataloader())) would fail, but the test only builds the loaders (L221-222).",
+      "evidence": "T1 L199-200, L221-223.",
+      "suggested_fix": "Fix the signature and iterate one batch; add an assertion on how _step consumes a non-(uids, dict) batch.",
+      "confidence": 0.9,
+      "test_name": "test_use_espnet_collator_flag_false",
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/components/modeling/test_model_with_optim_scheduler.py",
+      "lines": "706-735",
+      "category": "test-gap",
+      "severity": "low",
+      "summary": "No test covers gradient magnitude with accum_grad_steps > 1 or step_every_n_iters > 1, cross-optimizer gradient contamination, the real clip_gradients path (it is monkeypatched), or _sync2skip with num_nodes > 1 / world_size > 1.",
+      "scenario": "test_step_scheduler_advances_only_on_optimizer_update asserts only scheduler.last_epoch; test_clip_gradients_uses_optimizer_spec replaces module.clip_gradients with a recorder (L284-292); no test drives two batches with accum_grad_steps=2 and inspects .grad; the two verified high-severity bugs above went undetected.",
+      "evidence": "T2 L706-735, L264-289.",
+      "suggested_fix": "Add tests: (a) two-batch accumulation asserting grad == mean of micro-batch grads, (b) GAN-shaped model asserting D.grad has no g_loss component, (c) real trainer run with gradient_clip_val and a spy on torch.nn.utils.clip_grad_norm_.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": [
+        "espnet3/components/modeling/lightning_module.py"
+      ],
+      "verified_by_execution": false
+    }
+  ]
+}

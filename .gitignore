@@ -99,6 +99,11 @@
 # Context README
 !context/
 !context/README.md
+!context/espnet_agent_rules/
+!context/espnet_agent_rules/.agent/
+!context/espnet_agent_rules/.agent/**
+!context/espnet3_fable_review/
+!context/espnet3_fable_review/**
 
 # Python venv
 !requirements.txt

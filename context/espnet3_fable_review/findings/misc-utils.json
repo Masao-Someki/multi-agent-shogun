@@ -1,0 +1,190 @@
+{
+  "area": "misc-utils",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/utils/logging_utils.py",
+      "espnet3/utils/writer_utils.py",
+      "espnet3/utils/scp_utils.py",
+      "espnet3/utils/download_utils.py",
+      "test/espnet3/utils/test_logging.py",
+      "test/espnet3/utils/test_writer_utils.py",
+      "test/espnet3/utils/test_scp_utils.py",
+      "test/espnet3/utils/test_download.py",
+      "test_utils/espnet3/config/logging_sample.yaml"
+    ],
+    "files_skimmed": [
+      "espnet3/utils/stages_utils.py (lines around log_stage/set_stage_log_handler/log_stage_metadata call sites only)",
+      "espnet3/systems/base/inference_runner.py (grep + surrounding context for write_artifact call sites, hyp/ref key handling)",
+      "espnet3/components/data/dataset_builder.py, egs3/mini_an4/asr/dataset/builder.py (grep only, to confirm download_utils has no callers and to see the ad-hoc download logic used instead)"
+    ],
+    "files_not_read": [],
+    "tests_inspected": [
+      "test/espnet3/utils/test_logging.py",
+      "test/espnet3/utils/test_writer_utils.py",
+      "test/espnet3/utils/test_scp_utils.py",
+      "test/espnet3/utils/test_download.py"
+    ],
+    "notes": "scp_utils.py contains only a path-existence resolver (load_scp_paths, get_class_path); it does not parse or write SCP file contents (no spaces/tabs/newlines-in-values escaping, no duplicate-key/encoding handling to check) -- actual SCP writing happens in espnet3/systems/base/inference_runner.py (outside this area's assigned files). download_utils.py has zero production callers anywhere in espnet3/ or egs3/ (grep-verified across the whole repo) -- every finding in that file is 'latent' rather than reachable today, which caps their severity at medium instead of high/critical. writer_utils.py and its tests are otherwise solid: good coverage of the built-in json/npy/wav/pickle/custom-writer paths, CUDA-rejection (on the built-in path), DictConfig vs dict field_config, and invalid custom-writer-return validation. logging_utils.py's already-known bugs (set_stage_log_handler(None) leaking the prior stage handler on non-zero ranks; config_utils import-time logging.info() pre-empting configure_logging's formatted StreamHandler) were confirmed by reading stages_utils.py's call site but are not re-reported per instructions. Did not deeply audit egs3/mini_an4 or egs3/librispeech_100 dataset builder.py download/extraction logic since those files belong to a different review area; only grepped them for context on whether download_utils.py is reused (it is not)."
+  },
+  "assumptions": [
+    "Python 3.10 in this environment: tarfile.extractall's 'filter' argument (PEP 706) is optional and defaults to fully-permissive extraction with no deprecation warning (the safe 'data' default only became default in 3.14), so the extract_targz finding applies as stated.",
+    "'realistic configured path' for writer_utils' custom-writer CUDA-bypass finding is judged from the documented custom-writer feature plus a real call site in inference_runner.py, even though no currently-checked-in egs3/*.yaml enables a custom writer (only a commented-out example in egs3/TEMPLATE/asr/conf/inference.yaml)."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "espnet3/utils/writer_utils.py",
+      "lines": "155-161,192-203,211-218",
+      "category": "bug",
+      "severity": "high",
+      "summary": "write_artifact's CUDA-tensor rejection only applies to the built-in serialization path; a custom writer configured via field_config['writer'] receives raw CUDA tensors unchecked, contradicting the docstring's blanket 'CUDA tensors are rejected' claim.",
+      "scenario": "InferenceRunner._materialize_output_value (espnet3/systems/base/inference_runner.py:39-88) forwards inference-output torch.Tensor values straight into write_artifact(value, ..., field_config=artifact_config) with no .cpu()/.detach() call anywhere in that file. If a recipe runs GPU inference and its output function returns a tensor still on CUDA, and the field's inference.yaml config uses the documented custom `writer:` mechanism, the CUDA tensor reaches the user's writer function unfiltered -- e.g. a writer doing np.asarray(value) gets a low-level 'can't convert cuda:0 device type tensor to numpy' TypeError instead of the intended friendly ValueError, or a writer doing torch.save(value, path) silently bakes a CUDA-device tensor into the artifact, which then fails torch.load on any machine without that GPU available.",
+      "evidence": "writer_utils.py:211-218 `if isinstance(value, torch.Tensor): if value.is_cuda: raise ValueError(\"CUDA tensors are not supported...\")` lives only inside _write_builtin_artifact; _run_custom_writer (192-203) calls `writer(value=value, output_path=output_path, **writer_dict, **options)` with no such check. write_artifact (145-169) branches to _run_custom_writer and returns immediately whenever `writer_cfg is not None`, never reaching _write_builtin_artifact's guard.",
+      "suggested_fix": "Move the CUDA-tensor rejection (or an automatic value.detach().cpu()) into write_artifact() itself, before branching on writer_cfg, so it is enforced uniformly for both the built-in and custom-writer paths.",
+      "confidence": 0.75,
+      "test_name": null,
+      "related_files": ["espnet3/systems/base/inference_runner.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/logging_utils.py",
+      "lines": "479-485,664-667",
+      "category": "bug",
+      "severity": "medium",
+      "summary": "log_run_metadata and log_env_metadata each log one message twice (once via logger.info(...) and again via logger.log(..., stacklevel=2)), duplicating the '=== ESPnet3 run started ===' banner and the 'Cluster env:' block on every stage log.",
+      "scenario": "stages_utils.run_stages calls log_stage_metadata for every stage, which calls log_run_metadata + log_env_metadata. Every stage's log file therefore contains the run-started banner twice (with two slightly different timestamps, since datetime.now() is evaluated twice) and the Cluster env block twice, while 'Runtime env:' and every other metadata line appears only once -- inconsistent with the function's own 'Example log output' docstring, which shows each line exactly once.",
+      "evidence": "logging_utils.py:479 `logger.info(\"=== ESPnet3 run started: %s ===\", datetime.now().isoformat())` immediately followed by logging_utils.py:480-485 `logger.log(logging.INFO, \"=== ESPnet3 run started: %s ===\", datetime.now().isoformat(), stacklevel=2)`; same pattern at logging_utils.py:666 `logger.info(\"Cluster env:\\n%s\", cluster_dump)` followed by logging_utils.py:667 `logger.log(logging.INFO, \"Cluster env:\\n%s\", cluster_dump, stacklevel=2)`.",
+      "suggested_fix": "Remove the plain logger.info(...) calls at lines 479 and 666, keeping only the logger.log(..., stacklevel=2) forms used consistently elsewhere in both functions.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": ["espnet3/utils/stages_utils.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/utils/download_utils.py",
+      "lines": "141-158",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "extract_targz calls tar.extractall(path=dst_dir) with no filter argument, so a crafted or compromised .tar.gz can write files outside dst_dir via '../' paths, absolute paths, or symlinks (classic tarfile path-traversal / CVE-2007-4559-class issue).",
+      "scenario": "If this helper is wired up to download+extract a third-party dataset archive (its evident purpose, paired with download_url), a compromised mirror/CDN, a MITM'd HTTP download, or simply an upstream archive containing unexpected paths could write files anywhere the running user has write access, e.g. overwriting files elsewhere in the recipe tree or the user's home directory. Currently unreachable in practice: grep across espnet3/ and egs3/ shows download_utils.py has zero production callers, so this is latent rather than live.",
+      "evidence": "download_utils.py:157-158 `with tarfile.open(archive_path, \"r:gz\") as tar: tar.extractall(path=dst_dir)` -- no filter=/members= restriction. Python 3.10 (this environment) defaults extractall to fully-permissive extraction with no warning (PEP 706's safe 'data' default only became the default starting Python 3.14).",
+      "suggested_fix": "Pass filter=\"data\" (Python >=3.12) or a manual member-path allowlist that rejects absolute paths, '..' components, and symlinks pointing outside dst_dir.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": ["test/espnet3/utils/test_download.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/download_utils.py",
+      "lines": "104-138",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "download_url has no checksum/hash verification, no retry on transient failure, and no temp-file+rename, so a failed/interrupted download leaves a partial file at dst_path with no signal distinguishing it from a complete download.",
+      "scenario": "urllib.request.urlretrieve writes directly to dst_path; if the connection drops mid-transfer the exception propagates but a truncated file remains on disk. Any caller using the common 'if dst_path.exists(): skip download' staleness check (the pattern the ad-hoc downloader in egs3/mini_an4/asr/dataset/builder.py effectively needs) would treat the truncated file as a successfully cached download and silently proceed with corrupt/incomplete data on the next run. Currently unreachable in practice since download_utils.py has zero production callers today.",
+      "evidence": "download_utils.py:127-138: no hash parameter, no pre-existing-file check, no try/except around urlretrieve to clean up a partial dst_path on failure.",
+      "suggested_fix": "Download to a temp file (e.g. dst_path.with_suffix(dst_path.suffix + '.part')) and os.replace() into dst_path only on success; optionally accept an expected checksum and verify it before the rename.",
+      "confidence": 0.7,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/download_utils.py",
+      "lines": "1-158",
+      "category": "design",
+      "severity": "medium",
+      "summary": "download_utils.py (setup_logger/DownloadProgress/download_url/extract_targz) has zero callers anywhere in espnet3/ or egs3/ production code -- it is dead code, duplicated instead of reused by the hand-rolled download logic in the actual recipe dataset builders.",
+      "scenario": "`grep -rn \"download_url|extract_targz|download_utils\" --include=*.py .` across the whole repo shows this module is imported only by its own test file. Meanwhile egs3/mini_an4/asr/dataset/builder.py calls urllib.request.urlretrieve directly instead of espnet3.utils.download_utils.download_url. The 'canonical' download/extract helper module is therefore untested-in-production, so the bugs above (no path-traversal filter, no checksum/retry) have never been exercised, and two divergent download implementations exist in the codebase.",
+      "evidence": "grep output: only test/espnet3/utils/test_download.py references download_utils.* ; egs2/owsm_v3 and espnet2 encoder files use unrelated download_url symbols from torchaudio/torch.hub.",
+      "suggested_fix": "Either wire this module into the real dataset-download path(s) (and then fix the extract/download findings above), or remove it if it is meant to be replaced by the per-recipe builder.py logic.",
+      "confidence": 0.85,
+      "test_name": null,
+      "related_files": ["espnet3/components/data/dataset_builder.py", "egs3/mini_an4/asr/dataset/builder.py", "egs3/librispeech_100/asr/dataset/builder.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "test/espnet3/utils/test_download.py",
+      "lines": "60-108",
+      "category": "test-gap",
+      "severity": "medium",
+      "summary": "Both extract_targz tests stub out tarfile.open/extractall entirely, so no test ever exercises a real tar extraction; a path-traversal regression or filter-argument compatibility break would not be caught.",
+      "scenario": "test_extract_targz and test_extract_targz_accepts_none_logger both monkeypatch download_utils.tarfile.open to return a DummyTar whose extractall(path) is a no-op recording only the path argument -- no actual archive is ever built or extracted.",
+      "evidence": "test/espnet3/utils/test_download.py:65-88 `class DummyTar: def extractall(self, path): opened[\"path\"] = path` used in place of a real tarfile.",
+      "suggested_fix": "Add at least one test that builds a small real tar.gz (including a benign relative-path entry) and asserts the extracted file lands where expected, plus a test asserting a '../'-path or symlink member is rejected once extract_targz gains a filter.",
+      "confidence": 0.7,
+      "test_name": "test_extract_targz",
+      "related_files": ["espnet3/utils/download_utils.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/logging_utils.py",
+      "lines": "258-302",
+      "category": "test-gap",
+      "severity": "medium",
+      "summary": "set_stage_log_handler -- the function invoked before every stage in stages_utils.run_stages, and the one with the already-known rank0/None handler-leak issue -- has zero direct unit tests.",
+      "scenario": "test/espnet3/utils/test_logging.py has 14 tests covering configure_logging, set_log_format, log_run_metadata/log_stage_metadata, the log_component-based helpers, and build_qualified_name/build_callable_name, but never calls set_stage_log_handler directly: its rotation logic, `_espnet3_stage_log` marker-based handler removal, and None-log_dir short-circuit are only reachable indirectly (if at all) via other tests.",
+      "evidence": "grep of test/espnet3/utils/test_logging.py shows no reference to `set_stage_log_handler`.",
+      "suggested_fix": "Add direct tests for set_stage_log_handler: rotation of an existing file, replacement of a prior `_espnet3_stage_log`-marked handler, and the log_dir=None no-op path.",
+      "confidence": 0.8,
+      "test_name": null,
+      "related_files": ["espnet3/utils/stages_utils.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/writer_utils.py",
+      "lines": "219-240",
+      "category": "robustness",
+      "severity": "medium",
+      "summary": "_write_builtin_artifact writes np.save/sf.write/json.dump/pickle.dump directly to the final output_path with no write-to-temp-then-rename, so a mid-write crash or serialization error can leave a truncated/corrupt file at the artifact's permanent path.",
+      "scenario": "A process kill (SLURM preemption/OOM, which the codebase explicitly anticipates -- see the SLURM_/PBS_ cluster-prefix handling in logging_utils.py) or a mid-write exception (e.g. json.dump hitting a non-serializable nested value) leaves a partial file at output_path indistinguishable from a successfully written one. Any downstream resume/idempotency logic that checks 'artifact file exists => already produced' would silently reuse the corrupt file on retry.",
+      "evidence": "writer_utils.py:222-236: `output_path.parent.mkdir(...)` then direct `sf.write(output_path, ...)` / `np.save(output_path, ...)` / `json.dump(value, f, ...)` / `pickle.dump(value, f)` with no temp file or os.replace step.",
+      "suggested_fix": "Write to a `output_path.with_suffix(output_path.suffix + '.tmp')` sibling and os.replace() it into place only after the write succeeds.",
+      "confidence": 0.5,
+      "test_name": null,
+      "related_files": ["espnet3/systems/base/inference_runner.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/scp_utils.py",
+      "lines": "76-86",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "load_scp_paths validates task_dir/file existence with bare `assert` statements, which are compiled out under `python -O`/PYTHONOPTIMIZE, silently disabling the check.",
+      "scenario": "Run under `python -O`, load_scp_paths(inference_dir, test_name, inputs) would return paths to nonexistent SCP files instead of raising, and the failure would instead surface later (and less clearly) inside whatever metric code tries to open the file.",
+      "evidence": "scp_utils.py:77-79 `assert task_dir.exists(), f\"Missing hypothesis/reference files...\"` and line 85 `assert path.exists(), f\"Missing SCP file: {path}\"`.",
+      "suggested_fix": "Raise FileNotFoundError/ValueError explicitly instead of using assert for input validation that must hold regardless of optimization flags.",
+      "confidence": 0.4,
+      "test_name": null,
+      "related_files": ["espnet3/systems/base/metric.py"],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/writer_utils.py",
+      "lines": "199-200",
+      "category": "docs-mismatch",
+      "severity": "low",
+      "summary": "A custom writer config missing the required `_target_` key raises a bare KeyError instead of a clear config-validation error.",
+      "scenario": "field_config={\"writer\": {\"some_option\": 1}} (forgetting `_target_`) reaches `writer_dict.pop(\"_target_\")` and raises `KeyError: '_target_'` with no indication of which artifact field or config is malformed.",
+      "evidence": "writer_utils.py:200 `target = writer_dict.pop(\"_target_\")` -- no .get() default or explicit validation before the pop.",
+      "suggested_fix": "Validate `_target_` is present up front and raise a ValueError naming the offending field_config if it is missing.",
+      "confidence": 0.6,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/logging_utils.py",
+      "lines": "359-376",
+      "category": "design",
+      "severity": "low",
+      "summary": "_run_pip_freeze prefers `uv pip freeze` whenever a `uv` binary exists anywhere on PATH, without checking that `uv` actually manages the venv/interpreter that is currently running (sys.executable), which can make the --write_requirements snapshot silently reflect the wrong environment.",
+      "scenario": "A user with a system-wide `uv` install who launched espnet3 from an unrelated venv/conda environment (created via plain `python -m venv`/`pip`) gets `which(\"uv\") is not None` == True, so `_run_pip_freeze` runs `uv pip freeze`, which resolves its own project/venv discovery (cwd-based or $VIRTUAL_ENV-based) rather than sys.executable's environment -- the written requirements.txt can silently list a different environment's packages, or `uv pip freeze` can fail outright, undermining the reproducibility-snapshot's purpose.",
+      "evidence": "download_utils.py analog aside, in logging_utils.py:359-368: `if which(\"uv\") is not None: completed = subprocess.run([\"uv\", \"pip\", \"freeze\"], ...)` -- no check that `uv`'s resolved environment matches `sys.executable`.",
+      "suggested_fix": "Prefer `sys.executable -m pip freeze` unless explicitly told to use uv, or pass `--python {sys.executable}` to `uv pip freeze` to pin it to the running interpreter.",
+      "confidence": 0.4,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}

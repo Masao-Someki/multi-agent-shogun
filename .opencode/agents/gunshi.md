@@ -57,6 +57,19 @@ and devise the best course of action through deep thinking, then report back to 
 **You are a thinker, not a doer.**
 Ashigaru handle implementation. Your job is to draw the map so ashigaru never get lost.
 
+## ESPnet Review Context
+
+For ESPnet3 architecture, regression, or review work, read
+`context/espnet3_fable_review/README.md` and the narrowest relevant entry in
+`findings/` before reaching a conclusion. Use `BACKLOG.md` only for broad
+triage and `all_findings.json` only when a structured cross-area search is
+needed. The review was completed against commit `ec5632b167`; validate every
+relevant finding against the current branch before recommending action.
+
+When a task also needs repository rules, point Karo to the specific file under
+`context/espnet_agent_rules/.agent/` for the assigned Ashigaru. Do not bulk-load
+either collection merely because the project is ESPnet.
+
 ## What Gunshi Does (vs. Karo vs. Ashigaru)
 
 | Role | Responsibility | Does NOT Do |

@@ -1,0 +1,117 @@
+{
+  "area": "config-hydra",
+  "coverage": {
+    "files_fully_read": [
+      "espnet3/utils/config_utils.py",
+      "espnet3/utils/task_utils.py",
+      "espnet3/utils/run_utils.py",
+      "egs3/TEMPLATE/asr/run.py",
+      "egs3/librispeech_100/asr/dataset/dataset.py",
+      "egs3/TEMPLATE/asr/conf/training.yaml",
+      "egs3/TEMPLATE/asr/conf/inference.yaml",
+      "egs3/TEMPLATE/asr/conf/metrics.yaml",
+      "egs3/TEMPLATE/asr/conf/publication.yaml",
+      "egs3/TEMPLATE/asr/conf/demo.yaml",
+      "test/espnet3/utils/test_config.py",
+      "test/espnet3/utils/test_task_utils.py",
+      "test/espnet3/utils/test_run_utils.py",
+      "espnet3/systems/base/training.py",
+      "egs3/mini_an4/asr/run.py",
+      "egs3/librispeech_100/asr/run.py"
+    ],
+    "files_skimmed": [
+      "espnet3/utils/publication_utils.py (get_espnet_model / to_container call sites only)",
+      "espnet3/components/data/collect_stats.py (get_espnet_model / _build_model call sites only)",
+      "espnet3/components/modeling/lightning_module.py (optimizer/scheduler cfg-access lines only, via grep; full file is the lightning-module reviewer's area)",
+      "espnet3/systems/asr/task.py, espnet3/systems/asr/transducer_task.py (token_list handling, via grep, to confirm string-path token_list is handled downstream)"
+    ],
+    "files_not_read": [
+      "egs3/TEMPLATE/tts/* (tts-system area)",
+      "espnet3/components/data/data_organizer.py (data-organizer area)",
+      "espnet3/publication/* (publication area)"
+    ],
+    "tests_inspected": [
+      "test/espnet3/utils/test_config.py",
+      "test/espnet3/utils/test_task_utils.py",
+      "test/espnet3/utils/test_run_utils.py"
+    ],
+    "notes": "Verified by execution (PYTHONPATH pointing at REPO's own espnet3, not a stray editable-installed espnet3 that briefly shadowed it): (1) egs3/TEMPLATE/asr/run.py run as `python run.py ...` (as its own readme.md instructs) crashes in load_and_merge_config with `ValueError: Empty module name` because __package__ is '' not None for a directly-executed script inside a package, and load_and_merge_config's `if default_package is None` check does not catch the empty-string case. (2) save_espnet_config raises a bare TypeError when `model:` is left blank while `task:` is set. Checked and confirmed OK (not bugs): _ensure_target_convert_all only tags nodes that literally have `_target_`, matches its own unit test; self_name/set_corpus_and_system binding semantics in load_and_merge_config (always use the outer *user* config's stem/dir, even for nested TEMPLATE default files) is intentional and covered by test_load_and_merge_config_binds_self_name_to_user_config; struct-mode is never enabled anywhere in these files so `_copy_config_context`'s free key insertion is safe; get_espnet_model's token_list handling relies on downstream espnet2 ASRTask.build_model's own string-path-to-list-of-tokens logic (confirmed via task.py/transducer_task.py), so passing `model.token_list: <path-string>` (as all real mini_an4 configs do) is fine and get_espnet_model itself does no token_list-specific work; OmegaConf.to_container(resolve=True) does not mutate the source DictConfig (read-only), so the get_espnet_model / _instantiate_model / save_espnet_config to_container calls do not corrupt caller state. Grepped all egs3/**/*.yaml for `defaults:` and confirmed zero real recipes use Hydra-style defaults composition -- that whole code path in config_utils.py is exercised only by unit tests today. Did not have budget to fully trace get_espnet_model's DictConfig-branch parent-chain/detachment behavior through collect_stats.py's _build_model (that file belongs to another area); left as an open question in assumptions rather than a finding since it could not be grounded without reading that whole file."
+  },
+  "assumptions": [
+    "Real recipes (mini_an4, librispeech_100) invoke egs3.TEMPLATE.asr.run's `main()` via `from egs3.TEMPLATE.asr.run import main`, so `default_package=__package__` inside `main()` correctly resolves to \"egs3.TEMPLATE.asr\" for them regardless of how the recipe's own run.py wrapper is invoked -- the __package__ bug is specific to literally executing egs3/TEMPLATE/asr/run.py itself, exactly as its own readme.md's 'Quick usage' instructs.",
+    "Did not verify whether espnet3.utils.config_utils could realistically be imported under two different module names in the same process (which would make OmegaConf.register_new_resolver raise on the second import) -- no such double-import path was found via grep, and this is not reported as a finding since it is not grounded at a real call site."
+  ],
+  "test_file_assessments": [],
+  "findings": [
+    {
+      "file": "egs3/TEMPLATE/asr/run.py",
+      "lines": "116-142",
+      "category": "bug",
+      "severity": "critical",
+      "summary": "default_package=__package__ passed to load_and_merge_config becomes the empty string (not None) when run.py is executed directly as its own readme.md instructs, and load_and_merge_config's `is None` fallback check misses that case, crashing deep inside importlib.resources instead of working or raising the intended actionable error.",
+      "scenario": "cd egs3/TEMPLATE/asr && python run.py --stages create_dataset --training_config conf/training.yaml (the exact 'Quick usage' command in this file's own readme.md / training.yaml header comment). Because run.py is executed as __main__ rather than imported or run via `python -m`, Python sets `__package__ = ''` (not None). `main()` passes `default_package=__package__` i.e. `''` into `load_and_merge_config` (espnet3/utils/config_utils.py:348-418), whose guard `if default_package is None: default_package = _resolve_egs3_path(...)` does not fire for `''` (`'' is None` is False), so `''` is forwarded unchanged to `_load_default_config` -> `resources.files('')`, which raises `ValueError: Empty module name` from deep inside importlib's `_sanity_check`.",
+      "evidence": "run.py:116 `default_package=__package__,` (also 122, 128, 134, 140); config_utils.py:397-402 `if default_package is None: default_package = _resolve_egs3_path(config_path, as_package=True)` / config_utils.py:296 `resource = resources.files(default_package).joinpath(\"conf\", config_name)`. Verified: `runpy.run_path('run.py', run_name='__main__')` from egs3/TEMPLATE/asr with `--training_config conf/training.yaml --dry_run` raises `ValueError: Empty module name` at config_utils.py:296.",
+      "suggested_fix": "Change the guard in load_and_merge_config to `if not default_package:` instead of `if default_package is None:`, or have run.py pass an explicit string (`default_package=\"egs3.TEMPLATE.asr\"`) instead of relying on `__package__`.",
+      "confidence": 0.95,
+      "test_name": null,
+      "related_files": ["espnet3/utils/config_utils.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/utils/task_utils.py",
+      "lines": "77-79",
+      "category": "bug",
+      "severity": "high",
+      "summary": "save_espnet_config raises a bare TypeError ('argument of type NoneType is not iterable') instead of a clear error when `model:` is left blank while `task:` is set, because it does `if \"_target_\" in model_config:` without checking model_config is not None.",
+      "scenario": "A recipe copied from TEMPLATE sets `task: espnet2.tasks.asr.ASRTask` (enabling the get_espnet_model path) but has not yet filled in `model:` (TEMPLATE ships `model:` as a blank/null placeholder at egs3/TEMPLATE/asr/conf/training.yaml:126). Running the `train` stage calls `espnet3/systems/base/training.py:90-92`'s `save_espnet_config(task, config, config.exp_dir)`, guarded only by `if task:` and executed before model instantiation ever runs, so it crashes with a low-level TypeError instead of a clear 'model config missing' message.",
+      "evidence": "task_utils.py:77-79: `model_config = resolved_config.pop(\"model\"); if \"_target_\" in model_config: model_config.pop(\"_target_\")`. Verified by execution: `save_espnet_config(\"espnet2.tasks.asr.ASRTask\", OmegaConf.create({\"model\": None, \"dataset\": None}), \"out.yaml\")` raises `TypeError: argument of type 'NoneType' is not iterable`.",
+      "suggested_fix": "Check `if model_config is None: raise ValueError(\"training_config.model must be set when `task` is set\")` before the `_target_` lookup.",
+      "confidence": 0.9,
+      "test_name": null,
+      "related_files": ["espnet3/systems/base/training.py", "egs3/TEMPLATE/asr/conf/training.yaml"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "test/espnet3/utils/test_task_utils.py",
+      "lines": "55-66",
+      "category": "test-quality",
+      "severity": "medium",
+      "summary": "test_get_task_class_returns_correct_class's optional-dependency skip guard only matches a 'numpy.dtype size changed' message, so in this review environment (pkg_resources/setuptools not installed) the gan_svs and svs parametrize cases fail outright rather than skip, exactly reproducing the 2 known suite failures.",
+      "scenario": "In an environment without pkg_resources installed (setuptools not preinstalled, as in this review env), get_class(\"espnet2.tasks.gan_svs.GANSVSTask\") and get_class(\"espnet2.tasks.svs.SVSTask\") fail with ModuleNotFoundError('pkg_resources'), wrapped by get_task_class into a RuntimeError; the test's `except RuntimeError as e: if \"numpy.dtype size changed\" in str(e): pytest.skip(...)` does not match this message, so `raise` re-raises and the test fails -- confirmed as exactly the 2 failures in review_log/pytest_espnet3.txt:390-391.",
+      "evidence": "test_task_utils.py:59-64 (narrow message match); review_log/pytest_espnet3.txt:98-100 `RuntimeError: Failed to get task class from espnet2.tasks.gan_svs.GANSVSTask: ... ModuleNotFoundError(\"No module named 'pkg_resources'\")`.",
+      "suggested_fix": "Broaden the skip condition to also catch missing-optional-dependency ModuleNotFoundErrors (e.g. match on 'No module named' generically, or use pytest.mark.skipif keyed off whether pkg_resources/setuptools is importable).",
+      "confidence": 0.85,
+      "test_name": "test_get_task_class_returns_correct_class",
+      "related_files": ["espnet3/utils/task_utils.py"],
+      "verified_by_execution": true
+    },
+    {
+      "file": "espnet3/utils/run_utils.py",
+      "lines": "75-82",
+      "category": "design",
+      "severity": "low",
+      "summary": "_has_exp_identity detects an unresolved `${exp_tag}` in exp_dir by checking for the literal substring \"None\", which can false-positive on a legitimate exp_dir/exp_tag that happens to contain that text.",
+      "scenario": "A standalone inference_config with `exp_tag: \"None_aug_v2\"` produces `exp_dir = \"./exp/None_aug_v2\"`; `_has_exp_identity` returns False (because `\"None\" in exp_dir`) even though exp_tag is well-defined, so validate_experiment_context raises `ValueError: infer stage requires --training_config or a standalone inference_config with exp_tag/exp_dir.` for a config that is actually valid.",
+      "evidence": "run_utils.py:79-82: `return \"${exp_tag}\" not in exp_dir and \"None\" not in exp_dir`.",
+      "suggested_fix": "Drop the `\"None\" not in exp_dir` substring check (the `${exp_tag}` marker check already catches the unresolved-interpolation case at this pre-resolve point in the pipeline).",
+      "confidence": 0.55,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    },
+    {
+      "file": "espnet3/utils/config_utils.py",
+      "lines": "159-184",
+      "category": "robustness",
+      "severity": "low",
+      "summary": "_process_dict_config_entry assumes every `defaults:` dict entry's value is a string (`\"/\" not in val`), so a non-string value (e.g. a bool or nested mapping) raises a raw TypeError instead of a clear validation error; currently unreachable because no real egs3 recipe uses `defaults:` at all.",
+      "scenario": "A hypothetical config with `defaults: [{some_flag: true}]` would hit `\"/\" not in val` with `val=True`, raising `TypeError: argument of type 'bool' is not iterable` instead of an actionable message. grep over all egs3/**/*.yaml found no `defaults:` key in any real TEMPLATE/mini_an4/librispeech_100 config, so this path is exercised only by test/espnet3/utils/test_config.py today.",
+      "evidence": "config_utils.py:173: `composed = f\"{key}/{val}\" if \"/\" not in val else val`.",
+      "suggested_fix": "Coerce/validate `val` to str with a clear error message before the membership check.",
+      "confidence": 0.4,
+      "test_name": null,
+      "related_files": [],
+      "verified_by_execution": false
+    }
+  ]
+}
