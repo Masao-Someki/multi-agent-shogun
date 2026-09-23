@@ -1,0 +1,21 @@
+# Role allocation for an OpenAI Codex formation.
+# This is merged over the local config/settings.yaml at launch.
+cli:
+  default: codex
+  agents:
+    shogun:
+      type: codex
+      model: gpt-5.3-codex-spark
+    karo:
+      type: codex
+      model: gpt-5.3-codex
+    gunshi:
+      type: codex
+      model: gpt-5.3-codex
+    ashigaru1: {type: codex, model: gpt-5.3-codex}
+    ashigaru2: {type: codex, model: gpt-5.3-codex}
+    ashigaru3: {type: codex, model: gpt-5.3-codex}
+    ashigaru4: {type: codex, model: gpt-5.3-codex}
+    ashigaru5: {type: codex, model: gpt-5.3-codex}
+    ashigaru6: {type: codex, model: gpt-5.3-codex}
+    ashigaru7: {type: codex, model: gpt-5.3-codex}

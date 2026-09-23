@@ -2,6 +2,17 @@
 # 🏯 multi-agent-shogun 出陣スクリプト（毎日の起動用）
 # Daily Deployment Script for Multi-Agent Orchestration System
 #
+# macOS ships Bash 3.2, while this script uses Bash 4+ features.  Re-exec the
+# Homebrew Bash when it is available so `./shutsujin_departure.sh` works after
+# the documented macOS setup without a PATH-specific invocation.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] && [ -x /opt/homebrew/opt/bash/bin/bash ]; then
+    exec /opt/homebrew/opt/bash/bin/bash "$0" "$@"
+fi
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+    echo "ERROR: multi-agent-shogun requires Bash 4 or newer." >&2
+    exit 1
+fi
+
 # 使用方法:
 #   ./shutsujin_departure.sh           # 全エージェント起動（前回の状態を維持）
 #   ./shutsujin_departure.sh -c        # キューをリセットして起動（クリーンスタート）
@@ -70,14 +81,6 @@ if [ "$CLI_ADAPTER_LOADED" = true ] && [ -f "$SCRIPT_DIR/lib/session_pool.sh" ];
 else
     SESSION_POOL_LOADED=false
 fi
-
-# 足軽IDリストと人数を動的に取得（settings.yaml から）
-if [ "$CLI_ADAPTER_LOADED" = true ]; then
-    _ASHIGARU_IDS_STR=$(get_ashigaru_ids)
-else
-    _ASHIGARU_IDS_STR="ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
-fi
-_ASHIGARU_COUNT=$(echo "$_ASHIGARU_IDS_STR" | wc -w | tr -d ' ')
 
 # 色付きログ関数（戦国風）
 log_info() {
@@ -152,6 +155,7 @@ KESSEN_MODE=false
 SHOGUN_NO_THINKING=false
 SILENT_MODE=false
 SHELL_OVERRIDE=""
+MODEL_PROFILE=""
 # Permission flag (default: dangerously-skip-permissions for backward compat)
 PERMISSION_FLAG="--dangerously-skip-permissions"
 
@@ -176,6 +180,15 @@ while [[ $# -gt 0 ]]; do
         --shogun-no-thinking)
             SHOGUN_NO_THINKING=true
             shift
+            ;;
+        --model-profile)
+            if [[ -n "$2" && "$2" =~ ^[a-z0-9_-]+$ ]]; then
+                MODEL_PROFILE="$2"
+                shift 2
+            else
+                echo "エラー: --model-profile には profile 名を指定してください"
+                exit 1
+            fi
             ;;
         --auto-mode-on)
             PERMISSION_FLAG="--permission-mode auto-approved"
@@ -220,6 +233,7 @@ while [[ $# -gt 0 ]]; do
             echo "                      未指定時は config/settings.yaml の設定を使用"
             echo "  --auto-mode-on      Claude を --permission-mode auto-approved で起動"
             echo "  --permission-mode M Claude の permission mode を明示指定"
+            echo "  --model-profile P   config/model_profiles/P.yaml を読み込む"
             echo "  -S, --silent        サイレントモード（足軽の戦国echo表示を無効化・API節約）"
             echo "                      未指定時はshoutモード（タスク完了時に戦国風echo表示）"
             echo "  -h, --help          このヘルプを表示"
@@ -236,6 +250,8 @@ while [[ $# -gt 0 ]]; do
             echo "  ./shutsujin_departure.sh --shogun-no-thinking  # 将軍のthinkingを無効化（中継特化）"
             echo "  ./shutsujin_departure.sh --auto-mode-on        # permission auto-approved で起動"
             echo "  ./shutsujin_departure.sh --permission-mode plan  # permission mode を明示指定"
+            echo "  ./shutsujin_departure.sh --model-profile claude  # Claude 編成で起動"
+            echo "  ./shutsujin_departure.sh --model-profile codex   # Codex 編成で起動"
             echo "  ./shutsujin_departure.sh -S           # サイレントモード（echo表示なし）"
             echo ""
             echo "モデル構成:"
@@ -266,6 +282,51 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Model profiles are merged over the local settings file at launch. This keeps
+# personal paths, credentials, and notifications out of the tracked profiles.
+if [ -n "$MODEL_PROFILE" ]; then
+    PROFILE_PATH="$SCRIPT_DIR/config/model_profiles/${MODEL_PROFILE}.yaml"
+    if [ ! -f "$PROFILE_PATH" ]; then
+        echo "エラー: model profile が見つかりません: $PROFILE_PATH"
+        exit 1
+    fi
+    PROFILE_RUNTIME_DIR="$SCRIPT_DIR/runtime/model_profiles"
+    PROFILE_SETTINGS_PATH="$PROFILE_RUNTIME_DIR/${MODEL_PROFILE}.yaml"
+    mkdir -p "$PROFILE_RUNTIME_DIR"
+    umask 077
+    "$VENV_DIR/bin/python3" - "$SCRIPT_DIR/config/settings.yaml" "$PROFILE_PATH" "$PROFILE_SETTINGS_PATH" <<'PYEOF'
+import sys
+from pathlib import Path
+
+import yaml
+
+
+def merge(base, override):
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+settings_path, profile_path, output_path = map(Path, sys.argv[1:])
+settings = yaml.safe_load(settings_path.read_text()) if settings_path.exists() else {}
+profile = yaml.safe_load(profile_path.read_text()) or {}
+output_path.write_text(yaml.safe_dump(merge(settings or {}, profile), allow_unicode=True, sort_keys=False))
+PYEOF
+    CLI_ADAPTER_SETTINGS="$PROFILE_SETTINGS_PATH"
+    log_info "🎛️  model profile を適用: $MODEL_PROFILE"
+fi
+
+# Resolve the formation after an optional profile has been applied.
+if [ "$CLI_ADAPTER_LOADED" = true ]; then
+    _ASHIGARU_IDS_STR=$(get_ashigaru_ids)
+else
+    _ASHIGARU_IDS_STR="ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+fi
+_ASHIGARU_COUNT=$(echo "$_ASHIGARU_IDS_STR" | wc -w | tr -d ' ')
 
 # シェル設定のオーバーライド（コマンドラインオプション優先）
 if [ -n "$SHELL_OVERRIDE" ]; then

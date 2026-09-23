@@ -1,0 +1,24 @@
+# Role allocation for a Claude Code formation.
+# This is merged over the local config/settings.yaml at launch.
+cli:
+  default: claude
+  agents:
+    shogun:
+      type: claude
+      model: haiku
+      effort: low
+    karo:
+      type: claude
+      model: sonnet
+      effort: high
+    gunshi:
+      type: claude
+      model: opus
+      effort: xhigh
+    ashigaru1: {type: claude, model: sonnet, effort: high}
+    ashigaru2: {type: claude, model: sonnet, effort: high}
+    ashigaru3: {type: claude, model: sonnet, effort: high}
+    ashigaru4: {type: claude, model: sonnet, effort: high}
+    ashigaru5: {type: claude, model: sonnet, effort: high}
+    ashigaru6: {type: claude, model: sonnet, effort: high}
+    ashigaru7: {type: claude, model: sonnet, effort: high}
