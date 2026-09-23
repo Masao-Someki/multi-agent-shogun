@@ -333,10 +333,14 @@ build_cli_command() {
             ;;
     esac
 
-    local startup_prompt_arg
-    startup_prompt_arg=$(get_startup_prompt_arg "$agent_id")
-    if [[ -n "$startup_prompt_arg" ]]; then
-        cmd="$cmd $startup_prompt_arg"
+    # A resumed session already has its role and task context.  Callers that
+    # manage a persistent session pool suppress the one-time startup prompt.
+    if [[ "${CLI_ADAPTER_SKIP_STARTUP_PROMPT:-false}" != "true" ]]; then
+        local startup_prompt_arg
+        startup_prompt_arg=$(get_startup_prompt_arg "$agent_id")
+        if [[ -n "$startup_prompt_arg" ]]; then
+            cmd="$cmd $startup_prompt_arg"
+        fi
     fi
 
     echo "${prefix}${cmd}"
@@ -602,9 +606,14 @@ get_startup_prompt() {
     local cli_type
     cli_type=$(get_cli_type "$agent_id")
 
+    local session_pool_marker="${SESSION_POOL_MARKER:-}"
+    local session_pool_marker_clause=""
+    if [[ -n "$session_pool_marker" ]]; then
+        session_pool_marker_clause=" Session pool marker: ${session_pool_marker}."
+    fi
     case "$cli_type" in
         codex)
-            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done.${session_pool_marker_clause}"
             ;;
         *)
             echo ""

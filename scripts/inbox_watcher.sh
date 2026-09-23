@@ -66,6 +66,11 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         echo "[$(date)] cli_adapter.sh loaded (get_startup_prompt available)" >&2
     fi
 
+    _session_pool="${SCRIPT_DIR}/lib/session_pool.sh"
+    if [ -f "$_session_pool" ]; then
+        source "$_session_pool"
+    fi
+
     # Source shared agent status library (busy/idle detection)
     _agent_status_lib="${SCRIPT_DIR}/lib/agent_status.sh"
     if [ -f "$_agent_status_lib" ]; then
@@ -720,6 +725,11 @@ send_startup_prompt() {
 # CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear, antigravity→/clear
 
 send_context_reset() {
+    if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context; then
+        echo "[$(date)] [SESSION-POOL] Keeping context for $AGENT_ID; task YAML and inbox are the handoff." >&2
+        return 0
+    fi
+
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
@@ -1106,6 +1116,10 @@ for s in data.get('specials', []):
             [ -n "$msg_type" ] || continue
             if [ "$msg_type" = "clear_command" ]; then
                 clear_seen=1
+                if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context; then
+                    echo "[$(date)] [SESSION-POOL] Ignoring clear_command for $AGENT_ID; keeping the role session." >&2
+                    continue
+                fi
                 # Busy guard: skip /clear if agent is currently processing.
                 # Sending /clear during active work destroys in-progress context.
                 if agent_is_busy && [[ "$AGENT_ID" != "shogun" ]]; then

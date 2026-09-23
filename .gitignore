@@ -57,6 +57,7 @@
 !lib/ntfy_auth.sh
 !lib/agent_status.sh
 !lib/agent_registry.sh
+!lib/session_pool.sh
 
 # Multi-CLI: Codex auto-load file
 !AGENTS.md

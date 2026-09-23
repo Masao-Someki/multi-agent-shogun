@@ -62,6 +62,15 @@ else
     CLI_ADAPTER_LOADED=false
 fi
 
+# Role-scoped session IDs are local runtime state.  They survive tmux restarts
+# and let Claude/Codex resume the same role without sharing worker context.
+if [ "$CLI_ADAPTER_LOADED" = true ] && [ -f "$SCRIPT_DIR/lib/session_pool.sh" ]; then
+    source "$SCRIPT_DIR/lib/session_pool.sh"
+    SESSION_POOL_LOADED=true
+else
+    SESSION_POOL_LOADED=false
+fi
+
 # 足軽IDリストと人数を動的に取得（settings.yaml から）
 if [ "$CLI_ADAPTER_LOADED" = true ]; then
     _ASHIGARU_IDS_STR=$(get_ashigaru_ids)
@@ -704,7 +713,13 @@ if [ "$SETUP_ONLY" = false ]; then
     _shogun_cmd="claude --model opus --effort max $PERMISSION_FLAG"
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
         _shogun_cli_type=$(get_cli_type "shogun")
-        _shogun_cmd=$(build_cli_command "shogun")
+        if [ "$SHOGUN_NO_THINKING" = false ]; then
+            if [ "$SESSION_POOL_LOADED" = true ]; then
+                _shogun_cmd=$(build_pooled_cli_command "shogun")
+            else
+                _shogun_cmd=$(build_cli_command "shogun")
+            fi
+        fi
     fi
     # --shogun-no-thinking → settings.yaml の thinking を一時的に false にして build_cli_command に任せる
     if [ "$SHOGUN_NO_THINKING" = true ] && [ "$CLI_ADAPTER_LOADED" = true ]; then
@@ -715,7 +730,11 @@ with open(f) as fh: d = yaml.safe_load(fh) or {}
 d.setdefault('cli',{}).setdefault('agents',{}).setdefault('shogun',{})['thinking'] = False
 with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
 " 2>/dev/null
-        _shogun_cmd=$(build_cli_command "shogun")
+        if [ "$SESSION_POOL_LOADED" = true ]; then
+            _shogun_cmd=$(build_pooled_cli_command "shogun")
+        else
+            _shogun_cmd=$(build_cli_command "shogun")
+        fi
         log_info "  └─ 将軍 settings.yaml thinking=false に設定"
     fi
     tmux set-option -p -t "shogun:main" @agent_cli "$_shogun_cli_type"
@@ -735,7 +754,11 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     _karo_cmd="claude --model sonnet --effort max $PERMISSION_FLAG"
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
         _karo_cli_type=$(get_cli_type "karo")
-        _karo_cmd=$(build_cli_command "karo")
+        if [ "$SESSION_POOL_LOADED" = true ]; then
+            _karo_cmd=$(build_pooled_cli_command "karo")
+        else
+            _karo_cmd=$(build_cli_command "karo")
+        fi
     fi
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_karo_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_karo_cmd"
@@ -753,7 +776,12 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
             _ashi_cmd="claude --model opus --effort max $PERMISSION_FLAG"
             if [ "$CLI_ADAPTER_LOADED" = true ]; then
                 _ashi_cli_type=$(get_cli_type "ashigaru${i}")
-                if [ "$_ashi_cli_type" = "claude" ]; then
+                if [ "$SESSION_POOL_LOADED" = true ]; then
+                    _ashi_cmd=$(build_pooled_cli_command "ashigaru${i}")
+                    # Kessen retains its all-Opus contract while using the
+                    # role's existing session.
+                    _ashi_cmd=$(printf '%s' "$_ashi_cmd" | sed 's/--model [^ ]*/--model opus/')
+                elif [ "$_ashi_cli_type" = "claude" ]; then
                     _ashi_cmd="claude --model opus --effort max $PERMISSION_FLAG"
                 else
                     _ashi_cmd=$(build_cli_command "ashigaru${i}")
@@ -773,7 +801,11 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
             _ashi_cmd="claude --model sonnet --effort max $PERMISSION_FLAG"
             if [ "$CLI_ADAPTER_LOADED" = true ]; then
                 _ashi_cli_type=$(get_cli_type "ashigaru${i}")
-                _ashi_cmd=$(build_cli_command "ashigaru${i}")
+                if [ "$SESSION_POOL_LOADED" = true ]; then
+                    _ashi_cmd=$(build_pooled_cli_command "ashigaru${i}")
+                else
+                    _ashi_cmd=$(build_cli_command "ashigaru${i}")
+                fi
             fi
             tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_ashi_cli_type"
             tmux send-keys -t "multiagent:agents.${p}" "$_ashi_cmd"
@@ -789,7 +821,11 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     _gunshi_cmd="claude --model opus --effort max $PERMISSION_FLAG"
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
         _gunshi_cli_type=$(get_cli_type "gunshi")
-        _gunshi_cmd=$(build_cli_command "gunshi")
+        if [ "$SESSION_POOL_LOADED" = true ]; then
+            _gunshi_cmd=$(build_pooled_cli_command "gunshi")
+        else
+            _gunshi_cmd=$(build_cli_command "gunshi")
+        fi
     fi
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_gunshi_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_gunshi_cmd"
