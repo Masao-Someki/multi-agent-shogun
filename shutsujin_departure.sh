@@ -683,11 +683,38 @@ else
     tmux set-environment -t multiagent DISPLAY_MODE "shout"
 fi
 
-# Create exactly one pane per agent, then tile the formation.
+# Create exactly one pane per agent. Split the largest pane along its longer
+# dimension, then re-tile before choosing the next target so small terminals
+# do not accumulate a narrow vertical stack.
 for ((pane_index = 1; pane_index < _ASHIGARU_COUNT + 2; pane_index++)); do
-    tmux split-window -v -t "multiagent:agents.$((PANE_BASE + pane_index - 1))"
+    read -r target_pane target_width target_height < <(
+        tmux list-panes -t "multiagent:agents" \
+            -F '#{pane_index} #{pane_width} #{pane_height}' |
+            awk 'BEGIN { best = -1 }
+                { area = $2 * $3; if (area > best) {
+                    best = area; pane = $1; width = $2; height = $3
+                } }
+                END { if (best >= 0) print pane, width, height }'
+    )
+    if [[ -z "$target_pane" ]]; then
+        tmux kill-session -t multiagent 2>/dev/null || true
+        echo "ERROR: Could not find a pane to split. Check the terminal size and retry."
+        exit 1
+    fi
+
+    if (( target_width >= target_height )); then
+        split_direction="-h"
+    else
+        split_direction="-v"
+    fi
+    if ! tmux split-window "$split_direction" \
+        -t "multiagent:agents.${target_pane}"; then
+        tmux kill-session -t multiagent 2>/dev/null || true
+        echo "ERROR: Terminal is too small for the requested formation. Enlarge it and retry."
+        exit 1
+    fi
+    tmux select-layout -t "multiagent:agents" tiled
 done
-tmux select-layout -t "multiagent:agents" tiled
 
 # ペインラベル・エージェントID・色設定 — settings.yaml から動的に構築
 PANE_LABELS=("karo")
