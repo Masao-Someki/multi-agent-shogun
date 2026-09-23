@@ -18,7 +18,5 @@ cli:
     ashigaru1: {type: codex, model: gpt-6-luna, effort: medium}
     ashigaru2: {type: codex, model: gpt-6-luna, effort: medium}
     ashigaru3: {type: codex, model: gpt-6-luna, effort: medium}
-    ashigaru4: {type: codex, model: gpt-6-luna, effort: medium}
-    ashigaru5: {type: codex, model: gpt-6-luna, effort: medium}
-    ashigaru6: {type: codex, model: gpt-6-luna, effort: medium}
-    ashigaru7: {type: codex, model: gpt-6-luna, effort: medium}
+formation:
+  ashigaru_count: 3

@@ -314,9 +314,23 @@ def merge(base, override):
 settings_path, profile_path, output_path = map(Path, sys.argv[1:])
 settings = yaml.safe_load(settings_path.read_text()) if settings_path.exists() else {}
 profile = yaml.safe_load(profile_path.read_text()) or {}
-output_path.write_text(yaml.safe_dump(merge(settings or {}, profile), allow_unicode=True, sort_keys=False))
+formation = profile.pop("formation", {})
+settings = merge(settings or {}, profile)
+ashigaru_count = formation.get("ashigaru_count")
+if ashigaru_count is not None:
+    if not isinstance(ashigaru_count, int) or ashigaru_count < 1:
+        raise SystemExit("formation.ashigaru_count must be a positive integer")
+    agents = settings.setdefault("cli", {}).setdefault("agents", {})
+    for agent_id in list(agents):
+        if agent_id.startswith("ashigaru"):
+            suffix = agent_id.removeprefix("ashigaru")
+            if suffix.isdigit() and int(suffix) > ashigaru_count:
+                del agents[agent_id]
+output_path.write_text(yaml.safe_dump(settings, allow_unicode=True, sort_keys=False))
 PYEOF
-    CLI_ADAPTER_SETTINGS="$PROFILE_SETTINGS_PATH"
+    export CLI_ADAPTER_SETTINGS="$PROFILE_SETTINGS_PATH"
+    export SHOGUN_SETTINGS_FILE="$PROFILE_SETTINGS_PATH"
+    export AGENT_REGISTRY_SETTINGS="$PROFILE_SETTINGS_PATH"
     log_info "🎛️  model profile を適用: $MODEL_PROFILE"
 fi
 
@@ -640,9 +654,9 @@ echo ""
 PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STEP 5.1: multiagent セッション作成（9ペイン：karo + ashigaru1-8）
+# STEP 5.1: multiagent セッション作成（家老 + 足軽 + 軍師）
 # ═══════════════════════════════════════════════════════════════════════════════
-log_war "⚔️ 家老・足軽・軍師の陣を構築中（9名配備）..."
+log_war "⚔️ 家老・足軽・軍師の陣を構築中（$((_ASHIGARU_COUNT + 2))名配備）..."
 
 # 最初のペイン作成
 if ! tmux new-session -d -s multiagent -n "agents" 2>/dev/null; then
@@ -669,24 +683,11 @@ else
     tmux set-environment -t multiagent DISPLAY_MODE "shout"
 fi
 
-# 3x3グリッド作成（合計9ペイン）
-# ペイン番号は pane-base-index に依存（0 または 1）
-# 最初に3列に分割
-tmux split-window -h -t "multiagent:agents"
-tmux split-window -h -t "multiagent:agents"
-
-# 各列を3行に分割
-tmux select-pane -t "multiagent:agents.${PANE_BASE}"
-tmux split-window -v
-tmux split-window -v
-
-tmux select-pane -t "multiagent:agents.$((PANE_BASE+3))"
-tmux split-window -v
-tmux split-window -v
-
-tmux select-pane -t "multiagent:agents.$((PANE_BASE+6))"
-tmux split-window -v
-tmux split-window -v
+# Create exactly one pane per agent, then tile the formation.
+for ((pane_index = 1; pane_index < _ASHIGARU_COUNT + 2; pane_index++)); do
+    tmux split-window -v -t "multiagent:agents.$((PANE_BASE + pane_index - 1))"
+done
+tmux select-layout -t "multiagent:agents" tiled
 
 # ペインラベル・エージェントID・色設定 — settings.yaml から動的に構築
 PANE_LABELS=("karo")
@@ -1147,17 +1148,8 @@ echo "     ┌──────────────────────
 echo "     │  Pane 0: 将軍 (SHOGUN)      │  ← 総大将・プロジェクト統括"
 echo "     └─────────────────────────────┘"
 echo ""
-echo "     【multiagentセッション】家老・足軽・軍師の陣（3x3 = 9ペイン）"
-echo "     ┌─────────┬─────────┬─────────┐"
-echo "     │  karo   │ashigaru3│ashigaru6│"
-echo "     │  (家老) │ (足軽3) │ (足軽6) │"
-echo "     ├─────────┼─────────┼─────────┤"
-echo "     │ashigaru1│ashigaru4│ashigaru7│"
-echo "     │ (足軽1) │ (足軽4) │ (足軽7) │"
-echo "     ├─────────┼─────────┼─────────┤"
-echo "     │ashigaru2│ashigaru5│ gunshi  │"
-echo "     │ (足軽2) │ (足軽5) │ (軍師)  │"
-echo "     └─────────┴─────────┴─────────┘"
+echo "     【multiagentセッション】家老・足軽・軍師の陣（$((_ASHIGARU_COUNT + 2))ペイン）"
+printf '     %s\n' "${AGENT_IDS[@]}"
 echo ""
 
 echo ""
@@ -1176,7 +1168,7 @@ if [ "$SETUP_ONLY" = true ]; then
     echo "  │    'claude ${PERMISSION_FLAG}' Enter         │"
     echo "  │                                                          │"
     echo "  │  # 家老・足軽を一斉召喚                                  │"
-    echo "  │  for p in \$(seq $PANE_BASE $((PANE_BASE+8))); do                                 │"
+    echo "  │  for p in \$(seq $PANE_BASE $((PANE_BASE + _ASHIGARU_COUNT + 1))); do                │"
     echo "  │      tmux send-keys -t multiagent:agents.\$p \\            │"
     echo "  │      'claude ${PERMISSION_FLAG}' Enter       │"
     echo "  │  done                                                    │"
