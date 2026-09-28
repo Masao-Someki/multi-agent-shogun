@@ -188,6 +188,12 @@ logs/
 !skills/shogun-git-numstat-rename/SKILL.md
 !skills/shogun-git-numstat-rename/scripts/
 !skills/shogun-git-numstat-rename/scripts/*.py
+!skills/shogun-ast-line-breakdown/
+!skills/shogun-ast-line-breakdown/SKILL.md
+!skills/shogun-ast-line-breakdown/scripts/
+!skills/shogun-ast-line-breakdown/scripts/*.py
+!skills/shogun-ast-line-breakdown/tests/
+!skills/shogun-ast-line-breakdown/tests/*.py
 
 # Python venv (explicit deny — whitelist patterns like LICENSE leak through !*/)
 .venv/
