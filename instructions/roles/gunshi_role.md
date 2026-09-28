@@ -28,6 +28,23 @@ either collection merely because the project is ESPnet.
 | **Karo** | Task management, decomposition, dispatch | Deep analysis, implementation |
 | **Gunshi** | Strategic analysis, architecture design, evaluation | Task management, implementation, dashboard |
 | **Ashigaru** | Implementation, execution | Strategy, management |
+| **Tanya** | Gunshi's dedicated bounded research and small-operation aide | Independent design judgment, Karo tasks |
+
+## Direct Tanya delegation
+
+Gunshi may freely use Tanya for cheap, bounded work that supplies evidence for
+Gunshi's own reasoning: repository searches, source reading, command output
+capture, small reproducible checks, and concise factual summaries. Gunshi owns
+the conclusion and must check Tanya's evidence before using it.
+
+1. Write a bounded task to `queue/tasks/tanya.yaml` with a task ID, question,
+   expected evidence, scope limits, and `status: assigned`.
+2. Notify Tanya with `scripts/inbox_write.sh tanya ... task_assigned gunshi`.
+3. Read `queue/reports/tanya_report.yaml` after Tanya notifies Gunshi.
+4. Do not relay a raw Tanya result as a design conclusion. Integrate it into
+   Gunshi's own analysis and report to Karo.
+
+Karo must never assign Tanya. Tanya must never report directly to Karo.
 
 ## Language & Tone
 

@@ -153,8 +153,10 @@ files:
   input: queue/shogun_to_karo.yaml
   task_template: "queue/tasks/ashigaru{N}.yaml"
   gunshi_task: queue/tasks/gunshi.yaml
+  metsuke_task: queue/tasks/metsuke.yaml
   report_pattern: "queue/reports/ashigaru{N}_report.yaml"
   gunshi_report: queue/reports/gunshi_report.yaml
+  metsuke_report: queue/reports/metsuke_report.yaml
   dashboard: dashboard.md
 
 panes:
@@ -163,11 +165,9 @@ panes:
     - { id: 1, pane: "multiagent:0.1" }
     - { id: 2, pane: "multiagent:0.2" }
     - { id: 3, pane: "multiagent:0.3" }
-    - { id: 4, pane: "multiagent:0.4" }
-    - { id: 5, pane: "multiagent:0.5" }
-    - { id: 6, pane: "multiagent:0.6" }
-    - { id: 7, pane: "multiagent:0.7" }
-  gunshi: { pane: "multiagent:0.8" }
+  gunshi: { pane: "multiagent:0.4" }
+  metsuke: { pane: "multiagent:0.5" }
+  tanya: { pane: "multiagent:0.6", owner: gunshi }
   agent_id_lookup: "tmux list-panes -t multiagent -F '#{pane_index}' -f '#{==:#{@agent_id},ashigaru{N}}'"
 
 inbox:
@@ -565,7 +565,13 @@ If `config/settings.yaml` has no `ntfy_topic` → skip all notifications silentl
 
 > See CLAUDE.md for the escalation rule (🚨 要対応 section).
 
-Karo and Gunshi update dashboard.md. Gunshi updates during quality check aggregation (QC results section). Karo updates for task status, streaks, and action-needed items. Neither shogun nor ashigaru touch it.
+Karo and Metsuke update dashboard.md. Metsuke updates the QC results section; Karo updates task status, streaks, and action-needed items. Neither Shogun, Ashigaru, Gunshi, nor Tanya touch it.
+
+## Metsuke and Tanya routing
+
+- Ashigaru completion reports go to Metsuke when configured, otherwise the legacy Gunshi fallback.
+- Metsuke sends PASS, FAIL, or 要軍師 to Karo. Karo alone decides whether to ask Gunshi for design or technical judgment.
+- Tanya is Gunshi's dedicated research aide. **Never write Tanya's task YAML or send Tanya an inbox message.** Gunshi assigns and consumes Tanya's bounded research or small execution work directly.
 
 | Timing | Section | Content |
 |--------|---------|---------|
@@ -792,7 +798,7 @@ STEP 2: Write task YAML to queue/tasks/gunshi.yaml
   - type: strategy | analysis | design | evaluation | decomposition
   - Include all context_files the Gunshi will need
 STEP 3: Set pane task label
-  tmux set-option -p -t multiagent:0.8 @current_task "戦略立案"
+  tmux set-option -p -t multiagent:0.4 @current_task "戦略立案"
 STEP 4: Send inbox
   bash scripts/inbox_write.sh gunshi "タスクYAMLを読んで分析開始せよ。" task_assigned karo
 STEP 5: Continue dispatching other ashigaru tasks in parallel
@@ -805,7 +811,7 @@ When Gunshi completes:
 1. Read `queue/reports/gunshi_report.yaml`
 2. Use Gunshi's analysis to create/refine ashigaru task YAMLs
 3. Update dashboard.md with Gunshi's findings (if significant)
-4. Reset pane label: `tmux set-option -p -t multiagent:0.8 @current_task ""`
+4. Reset pane label: `tmux set-option -p -t multiagent:0.4 @current_task ""`
 
 ### Gunshi Limitations
 
@@ -852,8 +858,8 @@ These checks supplement Gunshi's QC. They do **not** replace the Ashigaru → Gu
 |-------|---------------|------|------|
 | Shogun | Opus | shogun:0.0 | Project oversight |
 | Karo | Sonnet | multiagent:0.0 | Fast task management |
-| Ashigaru 1-7 | (settings.yaml参照) | multiagent:0.1-0.7 | Implementation |
-| Gunshi | Opus | multiagent:0.8 | Strategic thinking |
+| Ashigaru 1-3 | (settings.yaml参照) | multiagent:0.1-0.3 | Implementation |
+| Gunshi | Opus | multiagent:0.4 | Strategic thinking |
 
 **Default: Assign implementation to ashigaru.** Route strategy/analysis to Gunshi (Opus).
 足軽のモデルは settings.yaml で個別定義。bloom_routing: "auto" 時は Step 6.5 で動的切替を実行せよ。

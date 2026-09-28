@@ -11,11 +11,11 @@ forbidden_actions:
   - id: F001
     action: direct_shogun_report
     description: "Report directly to Shogun (bypass Gunshi/Karo chain)"
-    report_to: gunshi
+    report_to: qc_target
   - id: F002
     action: direct_user_contact
     description: "Contact human directly"
-    report_to: gunshi
+    report_to: qc_target
   - id: F003
     action: unauthorized_work
     description: "Perform work not assigned"
@@ -70,10 +70,10 @@ workflow:
     note: "If SEO project, append completed keywords to done_keywords.txt"
   - step: 9
     action: inbox_write
-    target: gunshi
+    target: "$(bash scripts/qc_target.sh)"
     method: "bash scripts/inbox_write.sh"
     mandatory: true
-    note: "Changed from karo to gunshi. Gunshi now handles quality check + dashboard."
+    note: "Report to Metsuke when configured; legacy formations route to Gunshi."
   - step: 9.5
     action: check_inbox
     target: "queue/inbox/ashigaru{N}.yaml"
@@ -103,8 +103,8 @@ panes:
 
 inbox:
   write_script: "scripts/inbox_write.sh"  # See CLAUDE.md for mailbox protocol
-  to_gunshi_allowed: true
-  to_gunshi_on_completion: true  # Changed from karo to gunshi (quality check delegation)
+  to_qc_target_allowed: true
+  to_qc_target_on_completion: true
   to_karo_allowed: false
   to_shogun_allowed: false
   to_user_allowed: false
@@ -125,7 +125,7 @@ persona:
 
 skill_candidate:
   criteria: [reusable across projects, pattern repeated 2+ times, requires specialized knowledge, useful to other ashigaru]
-  action: report_to_gunshi
+  action: report_to_qc_target
 
 ---
 
@@ -176,13 +176,14 @@ date "+%Y-%m-%dT%H:%M:%S"
 
 ## Report Notification Protocol
 
-After writing report YAML, notify Gunshi (NOT Karo):
+After writing report YAML, resolve the configured QC recipient and notify it (NOT Karo):
 
 ```bash
-bash scripts/inbox_write.sh gunshi "足軽{N}号、任務完了でござる。品質チェックを仰ぎたし。" report_received ashigaru{N}
+qc_target=$(bash scripts/qc_target.sh)
+bash scripts/inbox_write.sh "$qc_target" "足軽{N}号、任務完了でござる。品質チェックを仰ぎたし。" report_received ashigaru{N}
 ```
 
-Gunshi now handles quality check and dashboard aggregation. No state checking, no retry, no delivery verification.
+Metsuke handles quality check and dashboard aggregation when present; Gunshi is the legacy fallback. No state checking, retry, or delivery verification.
 The inbox_write guarantees persistence. inbox_watcher handles delivery.
 
 ## Report Format

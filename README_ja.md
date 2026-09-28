@@ -296,7 +296,7 @@ cd /mnt/c/tools/multi-agent-shogun
 | 機能 | 説明 |
 |------|------|
 | **将軍ターミナル** | SSHターミナル + 音声入力 + 特殊キーバー (C-c, C-b, Tab等) |
-| **エージェント一覧** | 9ペイン同時監視。タップで全画面展開 + コマンド送信 |
+| **エージェント一覧** | 5ペイン同時監視。タップで全画面展開 + コマンド送信 |
 | **ダッシュボード** | dashboard.md をレンダリング表示。表のテキストもコピー可 |
 | **レートリミット** | エージェントタブ右下のボタンからClaude Max 5h/7d消費率をプログレスバーで確認 |
 | **音声入力** | Google Speech APIによる日本語連続認識。キーボード音声入力より高精度 |
@@ -384,7 +384,7 @@ Termuxを使ったSSH接続でも操作できる。専用アプリと比べて�
 4. ＋ボタンで新しいウィンドウを開いて、部下の様子も見る：
    ```sh
    ssh あなたのユーザー名@あなたのTailscale IP
-   csm    # 家老+足軽の9ペインが広がる
+   csm    # 家老+足軽+軍師の5ペインが広がる
    ```
 
 **切り方：** Termuxのウィンドウをスワイプで閉じるだけ。tmuxセッションは生き残る。AI部下は黙々と作業を続けている。
@@ -1010,9 +1010,9 @@ bash scripts/ntfy_listener.sh
 │                                      │                                     │
 │  SayTask要件定義中                   │  REST APIパターン調査中             │
 │                                      │                                     │
-├ ashigaru2 Sonnet ───────────────────┼ ashigaru4 Spark DBスキーマ設計 ─────┤
+├ ashigaru2 Sonnet ───────────────────┼ gunshi Opus 設計レビュー中 ─────┤
 │                                      │                                     │
-│  （待機中 — 割当待ち）               │  データベーススキーマ設計中         │
+│  （待機中 — 割当待ち）               │  戦略設計をレビュー中               │
 │                                      │                                     │
 └──────────────────────────────────────┴─────────────────────────────────────┘
 ```
@@ -1021,7 +1021,7 @@ bash scripts/ntfy_listener.sh
 - **待機中**: `ashigaru2 Sonnet` — モデル名のみ、タスクなし
 - **表示名**: Sonnet, Opus, Haiku, Codex, Spark — `+T` サフィックス = Extended Thinking有効
 - 家老がタスク割当・完了時に自動更新
-- 9ペインを一目見れば、誰が何をしているか即座にわかる
+- 5ペインを一目見れば、誰が何をしているか即座にわかる
 
 ### 🔊 10. シャウトモード（戦国エコー）
 
@@ -1158,7 +1158,7 @@ SayTaskは個人の生産性を担当（キャプチャ → スケジュール �
 | 将軍 | Opus | **有効（high）** | 殿の参謀。`--shogun-no-thinking` で中継専用モードに |
 | 家老 | Sonnet | 有効 | タスク分配・簡易QC・ダッシュボード管理 |
 | 軍師 | Opus | 有効 | 深い分析・設計レビュー・アーキテクチャ評価 |
-| 足軽1-7 | Sonnet 4.6 | 有効 | 実装：コード・リサーチ・ファイル操作 |
+| 足軽1-3 | Sonnet 4.6 | 有効 | 実装：コード・リサーチ・ファイル操作 |
 
 **Thinking制御**: `config/settings.yaml` でエージェントごとに `thinking: true/false` を設定可能。`thinking: false` の場合、`MAX_THINKING_TOKENS=0` で起動しExtended Thinkingを無効化。ペインボーダーにはThinking有効時に `+T` サフィックスが表示される（例: `Sonnet+T`、`Opus+T`）。
 
@@ -1288,6 +1288,11 @@ tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
 2. **情報集約**: 家老は全足軽の報告を受ける立場なので全体像を把握
 3. **一貫性**: すべての更新が1つの品質ゲートを通過
 4. **割り込み防止**: 将軍が更新すると、殿の入力中に割り込む恐れあり
+
+### 目付とターニャ
+
+- **目付**は足軽の完了報告を検め、QC結果だけを `dashboard.md` に集約し、家老へ PASS / FAIL / 要軍師を返す。目付がいない編成では軍師が従来どおり受ける。
+- **ターニャ**は軍師直属の軽量な補助役である。軍師だけが、検索・証跡集め・小さな実行を任せられる。家老はターニャへ指示せず、設計判断は常に軍師が行う。
 
 ---
 
@@ -1501,7 +1506,7 @@ cp config/ntfy_auth.env.sample config/ntfy_auth.env
 │      │                                                              │
 │      ├──▶ tmuxセッションを作成                                       │
 │      │         • "shogun"セッション（1ペイン）                        │
-│      │         • "multiagent"セッション（9ペイン、3x3グリッド）        │
+│      │         • "multiagent"セッション（5ペイン、タイル配置）        │
 │      │                                                              │
 │      ├──▶ キューファイルとダッシュボードをリセット                     │
 │      │                                                              │
@@ -1844,7 +1849,7 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 
 > **将軍システムをOpenCodeでも動かす。** OpenCodeがClaude Code、Codex、Copilot、Kimiと並ぶファーストクラスCLIになりました。個体別エージェント生成、tmux向け安定起動、provider付きモデルルーティング、VPS実機E2E検証まで対応しています。
 
-- **OpenCodeエージェント生成** — `scripts/build_instructions.sh` が、他CLIと同じ共通指示ソースから `.opencode/agents/*.md` を将軍/家老/足軽1-7/軍師向けに生成
+- **OpenCodeエージェント生成** — `scripts/build_instructions.sh` が、他CLIと同じ共通指示ソースから `.opencode/agents/*.md` を将軍/家老/足軽1-3/軍師向けに生成
 - **ロール境界つき権限** — `config/opencode-permissions.yaml` からOpenCode frontmatter権限を生成し、各ロールが所有ファイルだけを読み書きするよう制御
 - **tmuxで安定するOpenCode起動** — `lib/cli_adapter.sh` が `--agent <agent_id>` と `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動し、キー割当を固定
 - **provider付きモデル指定** — `settings.yaml` で `opencode/qwen3.6-plus-free` や `openrouter/openai/gpt-4o-mini` のようなOpenCodeモデルへルーティング可能

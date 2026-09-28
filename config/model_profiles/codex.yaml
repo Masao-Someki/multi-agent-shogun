@@ -15,6 +15,14 @@ cli:
       type: codex
       model: gpt-6-astra
       effort: medium
+    metsuke:
+      type: codex
+      model: gpt-6-sol
+      effort: medium
+    tanya:
+      type: codex
+      model: gpt-6-luna
+      effort: medium
     ashigaru1: {type: codex, model: gpt-6-luna, effort: medium}
     ashigaru2: {type: codex, model: gpt-6-luna, effort: medium}
     ashigaru3: {type: codex, model: gpt-6-luna, effort: medium}

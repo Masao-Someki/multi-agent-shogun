@@ -342,6 +342,27 @@ else
 fi
 _ASHIGARU_COUNT=$(echo "$_ASHIGARU_IDS_STR" | wc -w | tr -d ' ')
 
+# A configured formation may deliberately omit Metsuke. Keep that legacy
+# route working: Ashigaru completion reports then continue to Gunshi.
+_METSUKE_ENABLED=true
+_TANYA_ENABLED=true
+if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then
+    export AGENT_REGISTRY_PROJECT_ROOT="$SCRIPT_DIR"
+    export AGENT_REGISTRY_SETTINGS="${AGENT_REGISTRY_SETTINGS:-${SHOGUN_SETTINGS_FILE:-$SCRIPT_DIR/config/settings.yaml}}"
+    # shellcheck source=lib/agent_registry.sh
+    source "$SCRIPT_DIR/lib/agent_registry.sh"
+    _FORMATION_AGENTS=$(agent_registry_agents)
+    if ! printf '%s\n' "$_FORMATION_AGENTS" | grep -Fxq "metsuke"; then
+        _METSUKE_ENABLED=false
+    fi
+    if ! printf '%s\n' "$_FORMATION_AGENTS" | grep -Fxq "tanya"; then
+        _TANYA_ENABLED=false
+    fi
+fi
+_COMMAND_LAYER_COUNT=2  # karo + gunshi
+[ "$_METSUKE_ENABLED" = true ] && _COMMAND_LAYER_COUNT=3
+[ "$_TANYA_ENABLED" = true ] && _COMMAND_LAYER_COUNT=$((_COMMAND_LAYER_COUNT + 1))
+
 # シェル設定のオーバーライド（コマンドラインオプション優先）
 if [ -n "$SHELL_OVERRIDE" ]; then
     if [[ "$SHELL_OVERRIDE" == "bash" || "$SHELL_OVERRIDE" == "zsh" ]]; then
@@ -491,9 +512,29 @@ task:
 EOF
     done
 
-    # 軍師タスクファイルリセット
+    # 軍師・目付タスクファイルリセット
     cat > ./queue/tasks/gunshi.yaml << EOF
 # 軍師専用タスクファイル
+task:
+  task_id: null
+  parent_cmd: null
+  description: null
+  target_path: null
+  status: idle
+  timestamp: ""
+EOF
+    cat > ./queue/tasks/metsuke.yaml << EOF
+# 目付専用タスクファイル
+task:
+  task_id: null
+  parent_cmd: null
+  description: null
+  target_path: null
+  status: idle
+  timestamp: ""
+EOF
+    cat > ./queue/tasks/tanya.yaml << EOF
+# ターニャ専用タスクファイル（軍師直属）
 task:
   task_id: null
   parent_cmd: null
@@ -522,12 +563,26 @@ timestamp: ""
 status: idle
 result: null
 EOF
+    cat > ./queue/reports/metsuke_report.yaml << EOF
+worker_id: metsuke
+task_id: null
+timestamp: ""
+status: idle
+result: null
+EOF
+    cat > ./queue/reports/tanya_report.yaml << EOF
+worker_id: tanya
+task_id: null
+timestamp: ""
+status: idle
+result: null
+EOF
 
     # ntfy inbox リセット
     echo "inbox:" > ./queue/ntfy_inbox.yaml
 
     # agent inbox リセット
-    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi; do
+    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi metsuke tanya; do
         echo "messages:" > "./queue/inbox/${agent}.yaml"
     done
 
@@ -656,7 +711,7 @@ PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 5.1: multiagent セッション作成（家老 + 足軽 + 軍師）
 # ═══════════════════════════════════════════════════════════════════════════════
-log_war "⚔️ 家老・足軽・軍師の陣を構築中（$((_ASHIGARU_COUNT + 2))名配備）..."
+log_war "⚔️ 家老・足軽・軍師・目付・ターニャの陣を構築中（$((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT))名配備）..."
 
 # 最初のペイン作成
 if ! tmux new-session -d -s multiagent -n "agents" 2>/dev/null; then
@@ -686,7 +741,7 @@ fi
 # Create exactly one pane per agent. Split the largest pane along its longer
 # dimension, then re-tile before choosing the next target so small terminals
 # do not accumulate a narrow vertical stack.
-for ((pane_index = 1; pane_index < _ASHIGARU_COUNT + 2; pane_index++)); do
+for ((pane_index = 1; pane_index < _ASHIGARU_COUNT + _COMMAND_LAYER_COUNT; pane_index++)); do
     read -r target_pane target_width target_height < <(
         tmux list-panes -t "multiagent:agents" \
             -F '#{pane_index} #{pane_width} #{pane_height}' |
@@ -728,11 +783,21 @@ done
 PANE_LABELS+=("gunshi")
 AGENT_IDS+=("gunshi")
 PANE_COLORS+=("yellow")
+if [ "$_METSUKE_ENABLED" = true ]; then
+    PANE_LABELS+=("metsuke")
+    AGENT_IDS+=("metsuke")
+    PANE_COLORS+=("cyan")
+fi
+if [ "$_TANYA_ENABLED" = true ]; then
+    PANE_LABELS+=("tanya")
+    AGENT_IDS+=("tanya")
+    PANE_COLORS+=("green")
+fi
 
 # モデル名設定（pane-border-format で常時表示するため）- 動的構築
 MODEL_NAMES=()
 for _ai in "${AGENT_IDS[@]}"; do
-    if [[ "$_ai" == "gunshi" ]]; then
+    if [[ "$_ai" == "gunshi" || "$_ai" == "metsuke" ]]; then
         MODEL_NAMES+=("Opus")
     elif [ "$KESSEN_MODE" = true ]; then
         MODEL_NAMES+=("Opus")
@@ -769,7 +834,7 @@ done
 tmux set-option -t multiagent -w pane-border-status top
 tmux set-option -t multiagent -w pane-border-format '#{?pane_active,#[reverse],}#[bold]#{@agent_id}#[default] (#{@model_name}) #{@current_task}'
 
-log_success "  └─ 家老・足軽・軍師の陣、構築完了"
+log_success "  └─ 家老・足軽・軍師・目付の陣、構築完了"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -924,10 +989,55 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     tmux set-option -p -t "multiagent:agents.${p}" @model_name "$_gunshi_display" 2>/dev/null || true
     log_info "  └─ 軍師（${_gunshi_display}）、召喚完了"
 
+    if [ "$_METSUKE_ENABLED" = true ]; then
+        # 目付（pane _ASHIGARU_COUNT+2）: QC と dashboard の QC 結果を担当
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        _metsuke_cli_type="claude"
+        _metsuke_cmd="claude --model opus --effort medium $PERMISSION_FLAG"
+        if [ "$CLI_ADAPTER_LOADED" = true ]; then
+            _metsuke_cli_type=$(get_cli_type "metsuke")
+            if [ "$SESSION_POOL_LOADED" = true ]; then
+                _metsuke_cmd=$(build_pooled_cli_command "metsuke")
+            else
+                _metsuke_cmd=$(build_cli_command "metsuke")
+            fi
+        fi
+        tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_metsuke_cli_type"
+        tmux send-keys -t "multiagent:agents.${p}" "$_metsuke_cmd"
+        tmux send-keys -t "multiagent:agents.${p}" Enter
+        opencode_startup_delay "$_metsuke_cli_type"
+        _metsuke_display=$(get_model_display_name "metsuke" 2>/dev/null || echo "Opus")
+        tmux set-option -p -t "multiagent:agents.${p}" @model_name "$_metsuke_display" 2>/dev/null || true
+        log_info "  └─ 目付（${_metsuke_display}）、召喚完了"
+    fi
+
+    if [ "$_TANYA_ENABLED" = true ]; then
+        # ターニャは軍師直属の調査・小作業用 worker。家老は指示しない。
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        [ "$_METSUKE_ENABLED" = true ] && p=$((p + 1))
+        _tanya_cli_type="claude"
+        _tanya_cmd="claude --model sonnet --effort medium $PERMISSION_FLAG"
+        if [ "$CLI_ADAPTER_LOADED" = true ]; then
+            _tanya_cli_type=$(get_cli_type "tanya")
+            if [ "$SESSION_POOL_LOADED" = true ]; then
+                _tanya_cmd=$(build_pooled_cli_command "tanya")
+            else
+                _tanya_cmd=$(build_cli_command "tanya")
+            fi
+        fi
+        tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_tanya_cli_type"
+        tmux send-keys -t "multiagent:agents.${p}" "$_tanya_cmd"
+        tmux send-keys -t "multiagent:agents.${p}" Enter
+        opencode_startup_delay "$_tanya_cli_type"
+        _tanya_display=$(get_model_display_name "tanya" 2>/dev/null || echo "Sonnet")
+        tmux set-option -p -t "multiagent:agents.${p}" @model_name "$_tanya_display" 2>/dev/null || true
+        log_info "  └─ ターニャ（${_tanya_display}、軍師直属）、召喚完了"
+    fi
+
     if [ "$KESSEN_MODE" = true ]; then
         log_success "✅ 決戦の陣で出陣！全軍Opus！"
     else
-        log_success "✅ 平時の陣で出陣（家老=Sonnet, 足軽=Sonnet, 軍師=Opus）"
+        log_success "✅ 平時の陣で出陣（家老=Sonnet, 足軽=Sonnet, 軍師=Opus${_METSUKE_ENABLED:+, 目付=Opus}）"
     fi
     echo ""
 
@@ -1021,7 +1131,7 @@ NINJA_EOF
 
     # inbox ディレクトリ初期化（シンボリックリンク先のLinux FSに作成）
     mkdir -p "$SCRIPT_DIR/logs"
-    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi; do
+    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi metsuke tanya; do
         [ -f "$SCRIPT_DIR/queue/inbox/${agent}.yaml" ] || echo "messages:" > "$SCRIPT_DIR/queue/inbox/${agent}.yaml"
     done
 
@@ -1031,37 +1141,94 @@ NINJA_EOF
     pkill -f "fswatch.*queue/inbox" 2>/dev/null || true
     sleep 1
 
+    # Start a watcher and verify that the detached process survived startup.
+    # This is important when an existing CLI session is resumed: the pane can
+    # be healthy even though its previous inbox watcher has already exited.
+    start_inbox_watcher() {
+        local agent_id="$1"
+        local pane_target="$2"
+        local cli_type="$3"
+        local log_file="$SCRIPT_DIR/logs/inbox_watcher_${agent_id}.log"
+        local watcher_pid
+
+        if [ "$agent_id" = "shogun" ]; then
+            nohup env ASW_DISABLE_ESCALATION=1 ASW_PROCESS_TIMEOUT=0 \
+                ASW_DISABLE_NORMAL_NUDGE=0 \
+                bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" \
+                "$agent_id" "$pane_target" "$cli_type" \
+                >> "$log_file" 2>&1 &
+        else
+            nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" \
+                "$agent_id" "$pane_target" "$cli_type" \
+                >> "$log_file" 2>&1 &
+        fi
+        watcher_pid=$!
+        disown "$watcher_pid" 2>/dev/null || true
+        sleep 0.5
+
+        if kill -0 "$watcher_pid" 2>/dev/null; then
+            log_info "  └─ ${agent_id} inbox_watcher 起動確認 (pid=${watcher_pid})"
+            return 0
+        fi
+
+        log_info "  └─ ${agent_id} inbox_watcher が終了。1回再起動します"
+        if [ "$agent_id" = "shogun" ]; then
+            nohup env ASW_DISABLE_ESCALATION=1 ASW_PROCESS_TIMEOUT=0 \
+                ASW_DISABLE_NORMAL_NUDGE=0 \
+                bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" \
+                "$agent_id" "$pane_target" "$cli_type" \
+                >> "$log_file" 2>&1 &
+        else
+            nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" \
+                "$agent_id" "$pane_target" "$cli_type" \
+                >> "$log_file" 2>&1 &
+        fi
+        watcher_pid=$!
+        disown "$watcher_pid" 2>/dev/null || true
+        sleep 0.5
+        if ! kill -0 "$watcher_pid" 2>/dev/null; then
+            log_info "  └─ ${agent_id} inbox_watcher の再起動に失敗（ログを確認してください）"
+            return 0
+        fi
+        log_success "  └─ ${agent_id} inbox_watcher 再起動完了 (pid=${watcher_pid})"
+    }
+
     # 将軍のwatcher（ntfy受信の自動起床に必要）
     # 安全モード: phase2/phase3エスカレーションは無効、timeout周期処理も無効（event-drivenのみ）
     _shogun_watcher_cli=$(tmux show-options -p -t "shogun:main" -v @agent_cli 2>/dev/null || echo "claude")
-    nohup env ASW_DISABLE_ESCALATION=1 ASW_PROCESS_TIMEOUT=0 ASW_DISABLE_NORMAL_NUDGE=0 \
-        bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" shogun "shogun:main" "$_shogun_watcher_cli" \
-        >> "$SCRIPT_DIR/logs/inbox_watcher_shogun.log" 2>&1 &
-    disown
+    start_inbox_watcher shogun "shogun:main" "$_shogun_watcher_cli"
 
     # 家老のwatcher
     _karo_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${PANE_BASE}" -v @agent_cli 2>/dev/null || echo "claude")
-    nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" karo "multiagent:agents.${PANE_BASE}" "$_karo_watcher_cli" \
-        >> "$SCRIPT_DIR/logs/inbox_watcher_karo.log" 2>&1 &
-    disown
+    start_inbox_watcher karo "multiagent:agents.${PANE_BASE}" "$_karo_watcher_cli"
 
     # 足軽のwatcher
     for i in $(seq 1 "$_ASHIGARU_COUNT"); do
         p=$((PANE_BASE + i))
         _ashi_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
-        nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" "ashigaru${i}" "multiagent:agents.${p}" "$_ashi_watcher_cli" \
-            >> "$SCRIPT_DIR/logs/inbox_watcher_ashigaru${i}.log" 2>&1 &
-        disown
+        start_inbox_watcher "ashigaru${i}" "multiagent:agents.${p}" "$_ashi_watcher_cli"
     done
 
     # 軍師のwatcher
     p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
     _gunshi_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
-    nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" "gunshi" "multiagent:agents.${p}" "$_gunshi_watcher_cli" \
-        >> "$SCRIPT_DIR/logs/inbox_watcher_gunshi.log" 2>&1 &
-    disown
+    start_inbox_watcher gunshi "multiagent:agents.${p}" "$_gunshi_watcher_cli"
 
-    log_success "  └─ $((_ASHIGARU_COUNT + 3))エージェント分のinbox_watcher起動完了（将軍+家老+足軽${_ASHIGARU_COUNT}+軍師）"
+    if [ "$_METSUKE_ENABLED" = true ]; then
+        # 目付の watcher
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        _metsuke_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
+        start_inbox_watcher metsuke "multiagent:agents.${p}" "$_metsuke_watcher_cli"
+    fi
+
+    if [ "$_TANYA_ENABLED" = true ]; then
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        [ "$_METSUKE_ENABLED" = true ] && p=$((p + 1))
+        _tanya_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
+        start_inbox_watcher tanya "multiagent:agents.${p}" "$_tanya_watcher_cli"
+    fi
+
+    log_success "  └─ $((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT + 1))エージェント分のinbox_watcher起動完了"
 
     # STEP 6.7 は廃止 — CLAUDE.md Session Start (step 1: tmux agent_id) で各自が自律的に
     # 自分のinstructions/*.mdを読み込む。検証済み (2026-02-08)。
@@ -1175,7 +1342,7 @@ echo "     ┌──────────────────────
 echo "     │  Pane 0: 将軍 (SHOGUN)      │  ← 総大将・プロジェクト統括"
 echo "     └─────────────────────────────┘"
 echo ""
-echo "     【multiagentセッション】家老・足軽・軍師の陣（$((_ASHIGARU_COUNT + 2))ペイン）"
+echo "     【multiagentセッション】家老・足軽・軍師・目付の陣（$((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT))ペイン）"
 printf '     %s\n' "${AGENT_IDS[@]}"
 echo ""
 
@@ -1195,7 +1362,7 @@ if [ "$SETUP_ONLY" = true ]; then
     echo "  │    'claude ${PERMISSION_FLAG}' Enter         │"
     echo "  │                                                          │"
     echo "  │  # 家老・足軽を一斉召喚                                  │"
-    echo "  │  for p in \$(seq $PANE_BASE $((PANE_BASE + _ASHIGARU_COUNT + 1))); do                │"
+    echo "  │  for p in \$(seq $PANE_BASE $((PANE_BASE + _ASHIGARU_COUNT + _COMMAND_LAYER_COUNT - 1))); do                │"
     echo "  │      tmux send-keys -t multiagent:agents.\$p \\            │"
     echo "  │      'claude ${PERMISSION_FLAG}' Enter       │"
     echo "  │  done                                                    │"

@@ -55,7 +55,7 @@ log() {
 usage() {
     echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>] [--effort <level>] [--variant <variant>]"
     echo ""
-    echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
+    echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi, metsuke)"
     echo "  --type     claude | codex | copilot | kimi | opencode | cursor"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-8 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
     echo "  --effort   Claude effort level: low | medium | high | xhigh | max"

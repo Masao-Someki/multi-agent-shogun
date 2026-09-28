@@ -15,11 +15,9 @@ agent_registry_default_agents() {
         ashigaru1 \
         ashigaru2 \
         ashigaru3 \
-        ashigaru4 \
-        ashigaru5 \
-        ashigaru6 \
-        ashigaru7 \
-        gunshi
+        gunshi \
+        metsuke \
+        tanya
 }
 
 agent_registry_read_agents_from_settings() {

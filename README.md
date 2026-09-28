@@ -386,7 +386,7 @@ SSH via Termux also works. More limited than the dedicated app, but requires no 
 4. Open a new Termux window (+ button) for workers:
    ```sh
    ssh youruser@your-tailscale-ip
-   csm    # See all 9 panes
+   csm    # See all 5 panes
    ```
 
 **Disconnect:** Just swipe the Termux window closed. tmux sessions survive — agents keep working.
@@ -1067,7 +1067,7 @@ Each tmux pane shows the agent's current task directly on its border:
 │                                      │                                     │
 │  Working on SayTask requirements     │  Researching REST API patterns      │
 │                                      │                                     │
-├ ashigaru2 Sonnet ───────────────────┼ ashigaru4 Spark DB schema design ───┤
+├ ashigaru2 Sonnet ───────────────────┼ gunshi Opus+T reviewing design ─────┤
 │                                      │                                     │
 │  (idle — waiting for assignment)     │  Designing database schema          │
 │                                      │                                     │
@@ -1078,7 +1078,7 @@ Each tmux pane shows the agent's current task directly on its border:
 - **Idle**: `ashigaru2 Sonnet` — model name only, no task
 - **Display names**: Sonnet, Opus, Haiku, Codex, Spark — `+T` suffix = Extended Thinking enabled
 - Updated automatically by the Karo when assigning or completing tasks
-- Glance at all 9 panes to instantly know who's doing what
+- Glance at all 5 panes to instantly know who's doing what
 
 ### 🔊 10. Shout Mode (Battle Cries)
 
@@ -1215,7 +1215,14 @@ SayTask handles personal productivity (capture → schedule → remind). The cmd
 | Shogun | Opus | **Enabled (high)** | Strategic advisor to the Lord. Use `--shogun-no-thinking` for relay-only mode |
 | Karo | Sonnet | Enabled | Task distribution, simple QC, dashboard management |
 | Gunshi | Opus | Enabled | Deep analysis, design review, architecture evaluation |
+| Metsuke | Opus | Medium | Ashigaru completion QC, QC dashboard results, and PASS/FAIL/needs-Gunshi reports |
+| Tanya | Sonnet | Medium | Gunshi's dedicated low-cost research and small-operation aide |
 | Ashigaru 1–7 | Sonnet 4.6 | Enabled | Implementation: code, research, file operations |
+
+Ashigaru completion reports go to Metsuke when the formation includes it; older
+formations fall back to Gunshi. Metsuke routes unresolved design or technical
+questions through Karo to Gunshi. Tanya is not a general worker: Gunshi alone
+may assign it bounded searches, evidence collection, and small operations.
 
 **Thinking control**: Set `thinking: true/false` per agent in `config/settings.yaml`. When `thinking: false`, the agent starts with `MAX_THINKING_TOKENS=0` to disable Extended Thinking. Pane borders show `+T` suffix when Thinking is enabled (e.g., `Sonnet+T`, `Opus+T`).
 
@@ -1559,7 +1566,7 @@ Priority: Token > Basic > None. If neither is set, no auth headers are sent (bac
 │      │                                                              │
 │      ├──▶ Create tmux sessions                                      │
 │      │         • "shogun" session (1 pane)                          │
-│      │         • "multiagent" session (9 panes, 3x3 grid)          │
+│      │         • "multiagent" session (5 panes, tiled)          │
 │      │                                                              │
 │      ├──▶ Reset queue files and dashboard                           │
 │      │                                                              │
@@ -1892,7 +1899,7 @@ Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, 
 
 > **Run the Shogun formation on OpenCode.** OpenCode is now a first-class CLI alongside Claude Code, Codex, Copilot, and Kimi, with generated role agents, tmux-safe startup, provider-qualified model routing, and VPS-verified end-to-end operation.
 
-- **OpenCode agent generation** — `scripts/build_instructions.sh` generates `.opencode/agents/*.md` for Shogun, Karo, Ashigaru 1-7, and Gunshi from the same shared instruction source used by other CLIs
+- **OpenCode agent generation** — `scripts/build_instructions.sh` generates `.opencode/agents/*.md` for Shogun, Karo, Ashigaru 1-3, and Gunshi from the same shared instruction source used by other CLIs
 - **Role boundary permissions** — `config/opencode-permissions.yaml` drives OpenCode frontmatter permissions so each role can read/write only the files it owns
 - **tmux-safe OpenCode launch** — `lib/cli_adapter.sh` launches OpenCode with `--agent <agent_id>` and repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json` for deterministic keybindings
 - **Provider-qualified models** — `settings.yaml` can route OpenCode agents to models such as `opencode/qwen3.6-plus-free` or `openrouter/openai/gpt-4o-mini`

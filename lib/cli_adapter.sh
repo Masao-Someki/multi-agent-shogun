@@ -361,6 +361,8 @@ get_instruction_file() {
         shogun)    role="shogun" ;;
         karo)      role="karo" ;;
         gunshi)    role="gunshi" ;;
+        metsuke)   role="metsuke" ;;
+        tanya)     role="tanya" ;;
         ashigaru*) role="ashigaru" ;;
         *)
             echo "" >&2
@@ -476,7 +478,8 @@ get_agent_model() {
         cursor)
             # Cursor Agent CLI用デフォルトモデル（モデル名はパススルー）
             case "$agent_id" in
-                shogun|gunshi)  echo "claude-sonnet-4-6" ;;
+                shogun|gunshi|metsuke)  echo "claude-sonnet-4-6" ;;
+                tanya)                  echo "claude-sonnet-4-6" ;;
                 *)              echo "claude-sonnet-4-6" ;;
             esac
             ;;
@@ -493,7 +496,8 @@ get_agent_model() {
             case "$agent_id" in
                 shogun)         echo "opus" ;;
                 karo)           echo "sonnet" ;;
-                gunshi)         echo "opus" ;;
+                gunshi|metsuke) echo "opus" ;;
+                tanya)          echo "sonnet" ;;
                 ashigaru*)      echo "sonnet" ;;
                 *)              echo "sonnet" ;;
             esac
@@ -1456,7 +1460,7 @@ except Exception:
 
 # get_ashigaru_ids()
 # settings.yaml の cli.agents から足軽ID一覧を返す（スペース区切り、番号順）
-# フォールバック: "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+# フォールバック: "ashigaru1 ashigaru2 ashigaru3"
 get_ashigaru_ids() {
     local settings="${CLI_ADAPTER_SETTINGS:-${CLI_ADAPTER_PROJECT_ROOT}/config/settings.yaml}"
     local result
@@ -1475,6 +1479,6 @@ except Exception:
     if [[ -n "$result" ]]; then
         echo "$result"
     else
-        echo "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+        echo "ashigaru1 ashigaru2 ashigaru3"
     fi
 }

@@ -103,6 +103,11 @@ setup() {
     [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
+@test "opencode: opencode-metsuke.md and opencode-tanya.md generated" {
+    [ -f "$OUTPUT_DIR/opencode-metsuke.md" ]
+    [ -f "$OUTPUT_DIR/opencode-tanya.md" ]
+}
+
 @test "antigravity: antigravity-shogun.md generated" {
     [ -f "$OUTPUT_DIR/antigravity-shogun.md" ]
 }

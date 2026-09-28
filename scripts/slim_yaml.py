@@ -15,8 +15,8 @@ from pathlib import Path
 
 import yaml
 
-CANONICAL_TASKS = {f'ashigaru{i}' for i in range(1, 9)} | {'gunshi'}
-CANONICAL_REPORTS = {f'ashigaru{i}_report' for i in range(1, 9)} | {'gunshi_report'}
+CANONICAL_TASKS = {f'ashigaru{i}' for i in range(1, 9)} | {'gunshi', 'metsuke', 'tanya'}
+CANONICAL_REPORTS = {f'ashigaru{i}_report' for i in range(1, 9)} | {'gunshi_report', 'metsuke_report', 'tanya_report'}
 IDLE_STUB = {'task': {'status': 'idle'}}
 TOP_LEVEL_IDLE_STUB = {'status': 'idle'}
 TERMINAL_STATUSES = {'done', 'cancelled', 'paused'}

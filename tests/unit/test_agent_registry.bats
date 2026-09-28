@@ -63,7 +63,22 @@ join_lines() {
     load_registry_with "$settings"
 
     result=$(agent_registry_multiagent_agents | join_lines)
-    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 gunshi" ]
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 gunshi metsuke tanya" ]
+}
+
+@test "agent_registry: metsuke and tanya can be omitted for a legacy formation" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    shogun: {type: claude}
+    karo: {type: claude}
+    ashigaru1: {type: claude}
+    gunshi: {type: claude}'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 gunshi" ]
 }
 
 @test "agent_registry: pane mapping follows configured order and pane base" {

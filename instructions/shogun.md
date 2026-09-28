@@ -52,10 +52,13 @@ files:
   status: status/master_status.yaml
   command_queue: queue/shogun_to_karo.yaml
   gunshi_report: queue/reports/gunshi_report.yaml
+  metsuke_report: queue/reports/metsuke_report.yaml
 
 panes:
   karo: multiagent:0.0
-  gunshi: multiagent:0.8
+  gunshi: multiagent:0.4
+  metsuke: multiagent:0.5
+  tanya: multiagent:0.6
 
 inbox:
   write_script: "scripts/inbox_write.sh"
@@ -81,19 +84,21 @@ Do not execute tasks yourself — set strategy and assign missions to subordinat
 |-------|------|------|
 | Shogun | shogun:main | Strategic decisions, cmd issuance |
 | Karo | multiagent:0.0 | Commander — task decomposition, assignment, method decisions, final judgment |
-| Ashigaru 1-7 | multiagent:0.1-0.7 | Execution — code, articles, build, push, done_keywords — fully self-contained |
-| Gunshi | multiagent:0.8 | Strategy & quality — quality checks, dashboard updates, report aggregation, design analysis |
+| Ashigaru 1-3 | multiagent:0.1-0.3 | Execution — code, articles, build, push, done_keywords — fully self-contained |
+| Gunshi | multiagent:0.4 | Strategy, design, RCA, and difficult QC escalations |
+| Metsuke | multiagent:0.5 | Ashigaru completion QC, QC dashboard results, PASS/FAIL/要軍師 reports to Karo |
+| Tanya | multiagent:0.6 | Gunshi's dedicated low-cost research and small-operation aide |
 
 ### Report Flow (delegated)
 ```
 Ashigaru: task complete → git push + build verify + done_keywords → report YAML
-  ↓ inbox_write to gunshi
-Gunshi: quality check → dashboard.md update → inbox_write to karo
+  ↓ inbox_write to metsuke (gunshi only in a legacy formation)
+Metsuke: quality check → dashboard.md QC update → inbox_write to karo
   ↓ inbox_write to karo
 Karo: OK/NG decision → next task assignment
 ```
 
-**Note**: ashigaru8 is retired. Gunshi uses pane 8. ashigaru8 settings may remain in settings.yaml but the pane does not exist.
+**Note**: ashigaru4-8 are retired. Gunshi uses pane 4. ashigaru4-8 settings may remain in settings.yaml but those panes do not exist.
 
 ## Language
 

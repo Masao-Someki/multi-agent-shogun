@@ -120,8 +120,10 @@ roles:
     read_allow:
       - queue/inbox/gunshi.yaml
       - queue/tasks/gunshi.yaml
+      - queue/tasks/tanya.yaml
       - queue/reports/ashigaru*_report.yaml
       - queue/reports/gunshi_report.yaml
+      - queue/reports/tanya_report.yaml
       - dashboard.md
       - context/*
     edit_deny:
@@ -134,5 +136,63 @@ roles:
       - saytask/*
     edit_allow:
       - queue/tasks/gunshi.yaml
+      - queue/tasks/tanya.yaml
       - queue/reports/gunshi_report.yaml
+
+  metsuke:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/tasks/*
+      - queue/reports/*
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/ntfy_inbox.yaml
+      - saytask/*
+    read_allow:
+      - queue/inbox/metsuke.yaml
+      - queue/tasks/metsuke.yaml
+      - queue/reports/ashigaru*_report.yaml
+      - queue/reports/metsuke_report.yaml
+      - queue/tasks/ashigaru*.yaml
       - dashboard.md
+      - context/*
+    edit_deny:
+      - queue/tasks/ashigaru*.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/reports/ashigaru*_report.yaml
+      - queue/ntfy_inbox.yaml
+      - saytask/*
+    edit_allow:
+      - queue/tasks/metsuke.yaml
+      - queue/reports/metsuke_report.yaml
+      - dashboard.md
+
+  tanya:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/tasks/*
+      - queue/reports/*
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/ntfy_inbox.yaml
+      - dashboard.md
+      - saytask/*
+    read_allow:
+      - queue/inbox/tanya.yaml
+      - queue/tasks/tanya.yaml
+      - queue/reports/tanya_report.yaml
+      - context/*
+    edit_deny:
+      - queue/tasks/*
+      - queue/reports/*
+      - queue/ntfy_inbox.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - dashboard.md
+      - saytask/*
+    edit_allow:
+      - queue/tasks/tanya.yaml
+      - queue/reports/tanya_report.yaml
