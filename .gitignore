@@ -184,6 +184,10 @@ logs/
 !skills/shogun-git-first-integration-finder/SKILL.md
 !skills/shogun-git-first-integration-finder/scripts/
 !skills/shogun-git-first-integration-finder/scripts/*.py
+!skills/shogun-git-numstat-rename/
+!skills/shogun-git-numstat-rename/SKILL.md
+!skills/shogun-git-numstat-rename/scripts/
+!skills/shogun-git-numstat-rename/scripts/*.py
 
 # Python venv (explicit deny — whitelist patterns like LICENSE leak through !*/)
 .venv/
