@@ -105,8 +105,8 @@ result:
     ## 推奨: パターンB
     根拠: ...
   recommendations:
-    - "ohaka: ashigaru1,2,3"
-    - "kekkon: ashigaru4,5"
+    - "ohaka: ashigaru1,2"
+    - "kekkon: ashigaru3"
   risks:
     - "ashigaru3のコンテキスト消費が早い"
   files_modified: []

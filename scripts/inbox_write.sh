@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # inbox_write.sh — メールボックスへのメッセージ書き込み（排他ロック付き）
 # Usage: bash scripts/inbox_write.sh <target_agent> <content> <type> <from>
-# Example: bash scripts/inbox_write.sh karo "足軽5号、任務完了" report_received ashigaru5
+# Example: bash scripts/inbox_write.sh karo "足軽2号、任務完了" report_received ashigaru2
 
 set -e
 

@@ -166,7 +166,7 @@ if declare -f agent_registry_multiagent_agents >/dev/null 2>&1; then
     done < <(agent_registry_multiagent_agents)
 fi
 if [ "${#AGENTS[@]}" -eq 0 ]; then
-    AGENTS=("karo" "ashigaru1" "ashigaru2" "ashigaru3" "ashigaru4" "ashigaru5" "ashigaru6" "ashigaru7" "gunshi")
+    AGENTS=("karo" "ashigaru1" "ashigaru2" "ashigaru3" "gunshi")
 fi
 
 # pane-base-index

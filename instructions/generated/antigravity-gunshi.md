@@ -106,8 +106,8 @@ result:
     ## 推奨: パターンB
     根拠: ...
   recommendations:
-    - "ohaka: ashigaru1,2,3"
-    - "kekkon: ashigaru4,5"
+    - "ohaka: ashigaru1,2"
+    - "kekkon: ashigaru3"
   risks:
     - "ashigaru3のコンテキスト消費が早い"
   files_modified: []
@@ -241,7 +241,7 @@ Examples:
 bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽5号、任務完了。報告YAML確認されたし。" report_received ashigaru5
+bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
 
 # Karo → Ashigaru
 bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
