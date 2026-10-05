@@ -4,6 +4,11 @@
 # `cli.agents` historically served both as per-agent CLI overrides and as the
 # runtime formation list. To keep old partial override configs working, a parsed
 # list is treated as a formation only when it contains `karo`.
+#
+# Its YAML key order is deliberately *not* the pane order.  The departure
+# script creates panes in command hierarchy order, so all readers of this
+# registry must receive that same canonical order regardless of how a user
+# groups per-agent CLI settings in settings.yaml.
 
 AGENT_REGISTRY_PROJECT_ROOT="${AGENT_REGISTRY_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 AGENT_REGISTRY_SETTINGS="${AGENT_REGISTRY_SETTINGS:-${SHOGUN_SETTINGS_FILE:-${AGENT_REGISTRY_PROJECT_ROOT}/config/settings.yaml}}"
@@ -15,9 +20,9 @@ agent_registry_default_agents() {
         ashigaru1 \
         ashigaru2 \
         ashigaru3 \
-        gunshi \
         metsuke \
-        tanya
+        tanya \
+        gunshi
 }
 
 agent_registry_read_agents_from_settings() {
@@ -67,6 +72,54 @@ agent_registry_has_agent() {
     return 1
 }
 
+agent_registry_emit_canonical_order() {
+    # Read agent IDs from stdin and emit the command-layer formation order:
+    # shogun (separate session), karo, ashigaru<N>, metsuke, tanya, gunshi.
+    # Unknown future roles retain their settings.yaml order after these roles.
+    local agents=()
+    local agent
+
+    while IFS= read -r agent; do
+        [ -n "$agent" ] && agents+=("$agent")
+    done
+
+    emit_if_present() {
+        local wanted="$1"
+        local candidate
+        for candidate in "${agents[@]}"; do
+            if [ "$candidate" = "$wanted" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done
+        return 0
+    }
+
+    emit_if_present shogun
+    emit_if_present karo
+
+    # Numeric sorting keeps ashigaru2 before ashigaru10 without depending on
+    # non-portable `sort -V`.
+    for agent in "${agents[@]}"; do
+        if [[ "$agent" =~ ^ashigaru([0-9]+)$ ]]; then
+            printf '%s\t%s\n' "${BASH_REMATCH[1]}" "$agent"
+        fi
+    done | LC_ALL=C sort -n -k1,1 -k2,2 | while IFS=$'\t' read -r rank agent; do
+        printf '%s\n' "$agent"
+    done
+
+    emit_if_present metsuke
+    emit_if_present tanya
+    emit_if_present gunshi
+
+    for agent in "${agents[@]}"; do
+        case "$agent" in
+            shogun|karo|ashigaru[0-9]*|gunshi|metsuke|tanya) continue ;;
+        esac
+        printf '%s\n' "$agent"
+    done
+}
+
 agent_registry_agents() {
     local parsed=()
     local agent
@@ -81,9 +134,9 @@ agent_registry_agents() {
     fi
 
     if ! agent_registry_has_agent "shogun" "${parsed[@]}"; then
-        printf '%s\n' shogun
+        parsed=(shogun "${parsed[@]}")
     fi
-    printf '%s\n' "${parsed[@]}"
+    printf '%s\n' "${parsed[@]}" | agent_registry_emit_canonical_order
 }
 
 agent_registry_multiagent_agents() {

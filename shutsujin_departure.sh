@@ -780,9 +780,6 @@ for _ai in $_ASHIGARU_IDS_STR; do
     AGENT_IDS+=("$_ai")
     PANE_COLORS+=("blue")
 done
-PANE_LABELS+=("gunshi")
-AGENT_IDS+=("gunshi")
-PANE_COLORS+=("yellow")
 if [ "$_METSUKE_ENABLED" = true ]; then
     PANE_LABELS+=("metsuke")
     AGENT_IDS+=("metsuke")
@@ -793,6 +790,9 @@ if [ "$_TANYA_ENABLED" = true ]; then
     AGENT_IDS+=("tanya")
     PANE_COLORS+=("green")
 fi
+PANE_LABELS+=("gunshi")
+AGENT_IDS+=("gunshi")
+PANE_COLORS+=("yellow")
 
 # モデル名設定（pane-border-format で常時表示するため）- 動的構築
 MODEL_NAMES=()
@@ -969,8 +969,8 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
         log_info "  └─ 足軽1-${_ASHIGARU_COUNT}（平時の陣）、召喚完了"
     fi
 
-    # 軍師（pane _ASHIGARU_COUNT+1）: Opus Thinking — 戦略立案・設計判断専任
-    p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
+    # 軍師（last pane）: Opus Thinking — 戦略立案・設計判断専任
+    p=$((PANE_BASE + _ASHIGARU_COUNT + _COMMAND_LAYER_COUNT - 1))
     _gunshi_cli_type="claude"
     _gunshi_cmd="claude --model opus --effort max $PERMISSION_FLAG"
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
@@ -990,8 +990,8 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     log_info "  └─ 軍師（${_gunshi_display}）、召喚完了"
 
     if [ "$_METSUKE_ENABLED" = true ]; then
-        # 目付（pane _ASHIGARU_COUNT+2）: QC と dashboard の QC 結果を担当
-        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        # 目付（足軽の次の pane）: QC と dashboard の QC 結果を担当
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
         _metsuke_cli_type="claude"
         _metsuke_cmd="claude --model opus --effort medium $PERMISSION_FLAG"
         if [ "$CLI_ADAPTER_LOADED" = true ]; then
@@ -1013,7 +1013,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
 
     if [ "$_TANYA_ENABLED" = true ]; then
         # ターニャは軍師直属の調査・小作業用 worker。家老は指示しない。
-        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
         [ "$_METSUKE_ENABLED" = true ] && p=$((p + 1))
         _tanya_cli_type="claude"
         _tanya_cmd="claude --model sonnet --effort medium $PERMISSION_FLAG"
@@ -1209,24 +1209,24 @@ NINJA_EOF
         start_inbox_watcher "ashigaru${i}" "multiagent:agents.${p}" "$_ashi_watcher_cli"
     done
 
-    # 軍師のwatcher
-    p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
-    _gunshi_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
-    start_inbox_watcher gunshi "multiagent:agents.${p}" "$_gunshi_watcher_cli"
-
     if [ "$_METSUKE_ENABLED" = true ]; then
         # 目付の watcher
-        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
         _metsuke_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
         start_inbox_watcher metsuke "multiagent:agents.${p}" "$_metsuke_watcher_cli"
     fi
 
     if [ "$_TANYA_ENABLED" = true ]; then
-        p=$((PANE_BASE + _ASHIGARU_COUNT + 2))
+        p=$((PANE_BASE + _ASHIGARU_COUNT + 1))
         [ "$_METSUKE_ENABLED" = true ] && p=$((p + 1))
         _tanya_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
         start_inbox_watcher tanya "multiagent:agents.${p}" "$_tanya_watcher_cli"
     fi
+
+    # 軍師は最後の pane を使用する。
+    p=$((PANE_BASE + _ASHIGARU_COUNT + _COMMAND_LAYER_COUNT - 1))
+    _gunshi_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${p}" -v @agent_cli 2>/dev/null || echo "claude")
+    start_inbox_watcher gunshi "multiagent:agents.${p}" "$_gunshi_watcher_cli"
 
     log_success "  └─ $((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT + 1))エージェント分のinbox_watcher起動完了"
 

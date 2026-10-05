@@ -27,7 +27,7 @@ join_lines() {
     tr '\n' ' ' | sed 's/ $//'
 }
 
-@test "agent_registry: full cli.agents formation preserves configured order" {
+@test "agent_registry: formation uses canonical pane order, not YAML key order" {
     local settings="$TEST_TMP/settings.yaml"
     write_settings "$settings" 'cli:
   default: codex
@@ -52,6 +52,36 @@ join_lines() {
     [ "$result" = "karo ashigaru2 gunshi gunshi2" ]
 }
 
+@test "agent_registry: canonical order is stable when command roles are reordered in YAML" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    gunshi:
+      type: claude
+    metsuke:
+      type: claude
+    tanya:
+      type: claude
+    karo:
+      type: claude
+    ashigaru3:
+      type: claude
+    ashigaru1:
+      type: claude
+    ashigaru2:
+      type: claude'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
+
+    [ "$(agent_registry_multiagent_pane_for_agent karo 0)" = "multiagent:agents.0" ]
+    [ "$(agent_registry_multiagent_pane_for_agent metsuke 0)" = "multiagent:agents.4" ]
+    [ "$(agent_registry_multiagent_pane_for_agent tanya 0)" = "multiagent:agents.5" ]
+    [ "$(agent_registry_multiagent_pane_for_agent gunshi 0)" = "multiagent:agents.6" ]
+}
+
 @test "agent_registry: partial override config without karo falls back to legacy formation" {
     local settings="$TEST_TMP/settings.yaml"
     write_settings "$settings" 'cli:
@@ -63,7 +93,7 @@ join_lines() {
     load_registry_with "$settings"
 
     result=$(agent_registry_multiagent_agents | join_lines)
-    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 gunshi metsuke tanya" ]
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
 }
 
 @test "agent_registry: metsuke and tanya can be omitted for a legacy formation" {

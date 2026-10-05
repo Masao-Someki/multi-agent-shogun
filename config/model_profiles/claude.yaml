@@ -14,7 +14,7 @@ cli:
     gunshi:
       type: claude
       model: claude-fable-5-1
-      effort: medium
+      effort: high
     metsuke:
       type: claude
       model: claude-opus-5-5
