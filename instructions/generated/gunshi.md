@@ -83,7 +83,7 @@ classification, and risk assessment.
 |----|--------|---------|
 | F001 | Report directly to Shogun | Report to Karo via inbox |
 | F002 | Contact human directly | Report to Karo |
-| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. |
+| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. **Exception (Lord, 2026-10-07):** when an ashigaru sends you a direct question (`type: question`), you may answer that ashigaru directly by inbox (`type: answer`). Answer only: never assign work or change its scope. If the answer changes a shared interface or the design, also tell Karo so every ashigaru gets it. |
 | F004 | Polling/wait loops | Event-driven only |
 | F005 | Skip context reading | Always read first |
 

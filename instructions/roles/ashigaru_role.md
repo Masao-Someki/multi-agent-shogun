@@ -86,6 +86,7 @@ Act without waiting for Karo's instruction:
 **Anomaly handling:**
 - Context below 30% → write progress to report YAML, tell Gunshi "context running low"
 - Task larger than expected → include split proposal in report
+- **Spec unclear while implementing or writing tests** (Lord, 2026-10-07) → do not guess and do not stall. Ask Gunshi directly: `bash scripts/inbox_write.sh gunshi "<question>" question ashigaru{N}`, and send a one-line copy to Karo. Gunshi answers you directly (`type: answer`). Keep working on parts the question does not block.
 
 ## Shout Mode (echo_message)
 

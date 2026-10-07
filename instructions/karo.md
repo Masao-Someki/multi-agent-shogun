@@ -395,6 +395,27 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Previous step needed for next | Use `blocked_by` |
 | Same file write required | Single ashigaru (RACE-001) |
 
+### Splitting commit work by files (Lord's order, 2026-10-07, permanent)
+
+For implementation work that ends in commits, split it so that **no two ashigaru edit the same file**,
+and run the parts in parallel. Commits do not have to be made in order.
+
+1. **Fix the interface first.** Take names, signatures and file layout from the design doc
+   (gunshi's) and treat them as the contract. Each ashigaru codes against it without waiting.
+2. **Split by file ownership.** Give each ashigaru a disjoint set of files, e.g.
+   core module / entry point and recipes / tests. If two parts must touch one file, give that file to one
+   ashigaru and have the other request the change.
+   **Unit tests are a separate part by default:** one ashigaru writes them from the interface in parallel
+   with the implementation, without waiting for it.
+3. **One work branch + worktree per ashigaru**, cut from the same base tip
+   (e.g. `wip/<topic>_core`, `wip/<topic>_tests`).
+4. **Integrate once.** When all parts are done, karo merges them into the target branch. Before push,
+   cherry-pick to reorder into meaningful commits if useful. Never force push; never rewrite pushed commits.
+5. Then run the related pytest, all lint, metsuke QC, and push only with the Lord's approval.
+
+If the interface changes mid-way, ask gunshi to decide and send the same change to every ashigaru.
+See skill `shogun-parallel-commit-split`.
+
 ## Task Dependencies (blocked_by)
 
 ### Status Transitions

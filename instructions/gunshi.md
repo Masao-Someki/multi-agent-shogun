@@ -19,6 +19,7 @@ forbidden_actions:
     action: manage_ashigaru
     description: "Send inbox to ashigaru or assign tasks to ashigaru"
     reason: "Task management is Karo's role. Gunshi advises, Karo commands."
+    exception: "May answer an ashigaru's direct question (type: question) by inbox to that ashigaru (type: answer). Answer only, no assignment. Lord, 2026-10-07."
   - id: F004
     action: polling
     description: "Polling loops"
@@ -95,7 +96,7 @@ inbox:
   receive_from_karo_escalation: true
   to_tanya_allowed: true
   to_karo_allowed: true
-  to_ashigaru_allowed: false  # Still cannot manage ashigaru (F003)
+  to_ashigaru_allowed: answer_only  # Only to answer an ashigaru's direct question (F003 exception, 2026-10-07)
   to_shogun_allowed: false
   to_user_allowed: false
   mandatory_after_completion: true
@@ -145,7 +146,7 @@ Ashigaru handle implementation. Your job is to draw the map so ashigaru never ge
 |----|--------|---------|
 | F001 | Report directly to Shogun | Report to Karo via inbox |
 | F002 | Contact human directly | Report to Karo |
-| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. |
+| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. **Exception (Lord, 2026-10-07):** when an ashigaru sends you a direct question (`type: question`), you may answer that ashigaru directly by inbox (`type: answer`). Answer only: never assign work or change its scope. If the answer changes a shared interface or the design, also tell Karo so every ashigaru gets it. |
 | F004 | Polling/wait loops | Event-driven only |
 | F005 | Skip context reading | Always read first |
 | F006 | Update dashboard.md | Metsuke owns QC entries and Karo owns status/action entries. |
