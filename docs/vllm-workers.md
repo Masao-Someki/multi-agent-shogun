@@ -11,27 +11,26 @@ name is `shogun-worker`; the launcher must use that exact API model ID.
 
 ## 1. Start vLLM on the allocated L40S
 
-Run these commands in a shell on the allocated GPU node, inside the environment
-where vLLM is installed. Replace the SSH host and user in the next section with
-the cluster's allocated compute-node address and your account.
+Run these commands in a shell on the allocated GPU node. Install the
+[Pixi CLI](https://pixi.sh/latest/installation/) on that Linux host first if it
+is not already available. Pixi creates the Python environment and installs
+vLLM on its first run, choosing the PyTorch CUDA backend from the installed
+NVIDIA driver. Replace the SSH host and user in the next section with the
+cluster's allocated compute-node address and your account.
 
 ```bash
 export VLLM_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 printf 'Copy this inference-only key to the Shogun host: %s\n' "$VLLM_API_KEY"
-
-vllm serve Qwen/Qwen2.5-Coder-7B-Instruct \
-  --served-model-name shogun-worker \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.90 \
-  --enable-auto-tool-choice \
-  --tool-call-parser hermes
+cd gpu-vllm
+pixi run start
 ```
 
-The server binds to loopback so it is reachable only from the GPU node. Keep
-this process running while using the workers. If the model fails to start or
-leaves too little cache for your workload, lower `--max-model-len` and set the
+`pixi run start` resolves and installs the Linux environment, installs vLLM
+with `uv` if needed, then starts the server. The Pixi workspace and lock file
+are isolated under `gpu-vllm/`, so the Mac Shogun host does not try to install
+CUDA or vLLM. The server binds to loopback; keep this process running while
+using the workers. If the model fails to start or leaves too little cache for
+your workload, lower `--max-model-len` in `gpu-vllm/start-vllm.sh` and set the
 same value for `limit.context` in `config/opencode-vllm.json`.
 
 ## 2. Forward the endpoint to the Shogun host
