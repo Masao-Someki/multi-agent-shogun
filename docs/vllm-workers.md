@@ -35,25 +35,28 @@ same value for `limit.context` in `config/opencode-vllm.json`.
 
 ## 2. Forward the endpoint to the Shogun host
 
-For the Babel setup where your laptop authenticates to the login node, and the
-login node has passwordless SSH access to the allocated compute node, run this
-on the Shogun host and leave it running. Replace the placeholders with your
-login host, username, and allocated compute-node name (which must resolve from
-the login node):
+For Babel, where your laptop authenticates to the login node and the login node
+has passwordless SSH access to the allocated compute node, run this on the
+Shogun host and leave it running. Replace only the compute-node placeholder;
+that node name must resolve from the login node:
 
 ```bash
 ssh -t -o ExitOnForwardFailure=yes \
   -L 8000:127.0.0.1:8001 \
-  <user>@<login-host> \
+  msomeki@login.babel.cs.cmu.edu \
   'ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:8001:127.0.0.1:8000 <allocated-compute-host>'
 ```
 
-Enter the login-node password when prompted. The nested SSH runs from the login
-node to the compute node, so it uses Babel's passwordless inter-node access.
-This creates the path laptop `localhost:8000` → login `localhost:8001` → compute
-`localhost:8000`, where vLLM is bound. If the nested connection asks for a
-compute-node password, verify the host name and test `ssh
-<allocated-compute-host>` from an interactive login-node shell first.
+Enter your login password at SSH's hidden prompt. The password is not saved in
+shell history or a file. The nested SSH runs from the login node to the compute
+node, so it uses Babel's passwordless inter-node access. This creates the path
+laptop `localhost:8000` → login `localhost:8001` → compute `localhost:8000`,
+where vLLM is bound. If the nested connection asks for a compute-node password,
+verify the host name and test `ssh <allocated-compute-host>` from an interactive
+login-node shell first.
+
+Do not put the password in this command or a plaintext file. `sshpass` is not
+needed for this interactive tunnel; SSH prompts for the login password itself.
 
 The simpler `ssh -J` form authenticates both SSH hops using keys available to
 the laptop's SSH client. Use it only if your local SSH key is configured for
