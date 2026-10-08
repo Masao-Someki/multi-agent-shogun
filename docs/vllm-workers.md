@@ -35,17 +35,29 @@ same value for `limit.context` in `config/opencode-vllm.json`.
 
 ## 2. Forward the endpoint to the Shogun host
 
-On the host that runs this repository, open a second terminal and keep this SSH
-tunnel running. If the cluster requires a login-node jump host, use `-J` as
-shown; omit `-J <user>@<login-host>` when connecting directly to the compute
-node.
+For the Babel setup where your laptop authenticates to the login node, and the
+login node has passwordless SSH access to the allocated compute node, run this
+on the Shogun host and leave it running. Replace the placeholders with your
+login host, username, and allocated compute-node name (which must resolve from
+the login node):
 
 ```bash
-ssh -N \
-  -L 8000:127.0.0.1:8000 \
-  -J <user>@<login-host> \
-  <user>@<allocated-compute-host>
+ssh -t -o ExitOnForwardFailure=yes \
+  -L 8000:127.0.0.1:8001 \
+  <user>@<login-host> \
+  'ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:8001:127.0.0.1:8000 <allocated-compute-host>'
 ```
+
+Enter the login-node password when prompted. The nested SSH runs from the login
+node to the compute node, so it uses Babel's passwordless inter-node access.
+This creates the path laptop `localhost:8000` → login `localhost:8001` → compute
+`localhost:8000`, where vLLM is bound. If the nested connection asks for a
+compute-node password, verify the host name and test `ssh
+<allocated-compute-host>` from an interactive login-node shell first.
+
+The simpler `ssh -J` form authenticates both SSH hops using keys available to
+the laptop's SSH client. Use it only if your local SSH key is configured for
+the compute node, as described in the [Babel HPC guide](https://www.lti.cmu.edu/misc-pages/hpc1/hpc-guide.html#connecting-to-a-compute-node).
 
 If the cluster provides an authenticated private HTTPS gateway instead, use
 that gateway's `/v1` URL and skip the SSH tunnel. Do not expose an unauthenticated
