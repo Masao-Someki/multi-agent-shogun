@@ -128,13 +128,13 @@ _cli_adapter_shell_quote() {
 }
 
 # _cli_adapter_get_agent_env_prefix agent_id
-# settings.yaml の cli.agents.{id}.env から KEY=VALUE 文字列を返す
-# 例: "OPENAI_BASE_URL=http://... OPENAI_API_KEY=sk-xxx "
+# settings.yaml の cli.agents.{id}.env から KEY=VALUE 文字列を返す。
+# 値は固定文字列、または {from_env: NAME, required: true|false}。
 _cli_adapter_get_agent_env_prefix() {
     local agent_id="$1"
     local result
     result=$("$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c "
-import yaml, shlex, sys
+import os, yaml, shlex, sys
 try:
     with open('${CLI_ADAPTER_SETTINGS}') as f:
         cfg = yaml.safe_load(f) or {}
@@ -144,12 +144,26 @@ try:
     env = env.get('env', {})
     if not isinstance(env, dict):
         sys.exit(0)
-    parts = [shlex.quote(f'{k}={v}') for k, v in env.items()]
+    parts = []
+    for key, value in env.items():
+        if isinstance(value, dict) and 'from_env' in value:
+            source = str(value['from_env'])
+            required = value.get('required', True)
+            if source not in os.environ or (required and not os.environ[source]):
+                if required:
+                    raise SystemExit(f'Required environment variable {source} is not set')
+                value = ''
+            else:
+                value = os.environ.get(source, '')
+        elif isinstance(value, (dict, list)):
+            raise SystemExit(f'Unsupported env value for {key}; use a string or from_env mapping')
+        parts.append(shlex.quote(f'{key}={value}'))
     if parts:
         print(' '.join(parts) + ' ')
-except Exception:
-    pass
-" 2>/dev/null)
+except Exception as exc:
+    print(f'Failed to build agent environment: {exc}', file=sys.stderr)
+    sys.exit(1)
+" ) || return 1
     echo "${result:-}"
 }
 
@@ -288,7 +302,7 @@ build_cli_command() {
             if [[ -n "$variant" ]]; then
                 launch_agent_id="${agent_id}-runtime"
             fi
-            agent_env_prefix=$(_cli_adapter_get_agent_env_prefix "$agent_id")
+            agent_env_prefix=$(_cli_adapter_get_agent_env_prefix "$agent_id") || return 1
             local quoted_agent_id
             quoted_agent_id=$(_cli_adapter_shell_quote "$agent_id")
             cmd="opencode"

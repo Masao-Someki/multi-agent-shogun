@@ -1,0 +1,21 @@
+# Route execution and QC roles to the separately hosted vLLM endpoint.
+# Shogun, Karo, and Gunshi inherit their commercial CLI/model settings from
+# config/settings.yaml.
+cli:
+  agents:
+    ashigaru1: &vllm_worker
+      type: opencode
+      model: vllm/worker
+      env:
+        OPENCODE_CONFIG: config/opencode-vllm.json
+        VLLM_BASE_URL:
+          from_env: VLLM_BASE_URL
+        VLLM_MODEL_ID:
+          from_env: VLLM_MODEL_ID
+        VLLM_API_KEY:
+          from_env: VLLM_API_KEY
+          required: false
+    ashigaru2: *vllm_worker
+    ashigaru3: *vllm_worker
+    tanya: *vllm_worker
+    metsuke: *vllm_worker

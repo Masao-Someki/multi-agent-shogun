@@ -88,6 +88,7 @@
 !config/
 !config/ntfy_auth.env.sample
 !config/opencode-tui.json
+!config/opencode-vllm.json
 !config/opencode-permissions.yaml
 !config/model_profiles/
 !config/model_profiles/*.yaml
@@ -142,6 +143,7 @@ logs/
 
 # Docs
 !docs/
+!docs/vllm-workers.md
 !docs/philosophy.md
 !docs/vps_pr118_verification_plan.md
 

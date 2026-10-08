@@ -493,7 +493,7 @@ wsl --install
 | OpenAI Codex CLI | OpenAI Codex公式配布からインストール | `type: codex` のエージェントでのみ必要 |
 | GitHub Copilot CLI | GitHub Copilot CLIをインストールして認証 | `type: copilot` のエージェントでのみ必要 |
 | Kimi Code CLI | Kimi Codeをインストールして認証 | `type: kimi` のエージェントでのみ必要 |
-| OpenCode CLI | `npm install -g opencode-ai` | `type: opencode` のエージェントでのみ必要。provider API key は起動シェルで読める必要あり |
+| OpenCode CLI | `npm install -g opencode-ai` | `type: opencode` のエージェントでのみ必要。provider API key は起動シェルで読める必要あり。remote vLLM profile は [docs/vllm-workers.md](docs/vllm-workers.md) |
 | Cursor CLI | [Cursor CLI ドキュメント](https://cursor.com/docs/cli/overview) 参照 — `cursor-agent` または `agent` コマンドで起動 | `type: cursor` のエージェントでのみ必要 |
 | Antigravity CLI | Google Antigravity CLI（`agy`）をインストールして認証 | `type: antigravity`、`type: agy`、または旧称 `type: gemini` のエージェントでのみ必要 |
 

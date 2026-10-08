@@ -252,6 +252,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./shutsujin_departure.sh --permission-mode plan  # permission mode を明示指定"
             echo "  ./shutsujin_departure.sh --model-profile claude  # Claude 編成で起動"
             echo "  ./shutsujin_departure.sh --model-profile codex   # Codex 編成で起動"
+            echo "  ./shutsujin_departure.sh --model-profile vllm-workers  # 足軽・ターニャ・目付を remote vLLM で起動"
             echo "  ./shutsujin_departure.sh -S           # サイレントモード（echo表示なし）"
             echo ""
             echo "モデル構成:"
@@ -282,6 +283,29 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [ "$MODEL_PROFILE" = "vllm-workers" ]; then
+    if [ -z "${VLLM_BASE_URL:-}" ]; then
+        echo "エラー: vllm-workers には VLLM_BASE_URL が必要です（例: https://gpu-gateway.example/v1）"
+        exit 1
+    fi
+    if [[ "$VLLM_BASE_URL" != http://* && "$VLLM_BASE_URL" != https://* ]]; then
+        echo "エラー: VLLM_BASE_URL は http:// または https:// で始めてください"
+        exit 1
+    fi
+    if [[ "$VLLM_BASE_URL" != */v1 ]]; then
+        echo "エラー: VLLM_BASE_URL の末尾に /v1 を含めてください（末尾スラッシュ無し）"
+        exit 1
+    fi
+    if [ -z "${VLLM_MODEL_ID:-}" ]; then
+        echo "エラー: vllm-workers には VLLM_MODEL_ID が必要です（GET /v1/models の id）"
+        exit 1
+    fi
+    if ! command -v opencode >/dev/null 2>&1; then
+        echo "エラー: vllm-workers profile には OpenCode CLI が必要です"
+        exit 1
+    fi
+fi
 
 # Model profiles are merged over the local settings file at launch. This keeps
 # personal paths, credentials, and notifications out of the tracked profiles.

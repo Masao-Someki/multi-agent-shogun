@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Remote vLLM",
+      "options": {
+        "baseURL": "{env:VLLM_BASE_URL}",
+        "apiKey": "{env:VLLM_API_KEY}"
+      },
+      "models": {
+        "worker": {
+          "name": "vLLM worker model",
+          "id": "{env:VLLM_MODEL_ID}",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        }
+      }
+    }
+  }
+}
