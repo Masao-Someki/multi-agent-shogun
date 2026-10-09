@@ -252,7 +252,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./shutsujin_departure.sh --permission-mode plan  # permission mode を明示指定"
             echo "  ./shutsujin_departure.sh --model-profile claude  # Claude 編成で起動"
             echo "  ./shutsujin_departure.sh --model-profile codex   # Codex 編成で起動"
-            echo "  ./shutsujin_departure.sh --model-profile vllm-workers  # 足軽・ターニャ・目付を remote vLLM で起動"
+            echo "  ./shutsujin_departure.sh --model-profile vllm-workers  # 足軽・ターニャを remote vLLM で起動（目付は常に settings.yaml の Claude）"
             echo "  ./shutsujin_departure.sh -S           # サイレントモード（echo表示なし）"
             echo ""
             echo "モデル構成:"
