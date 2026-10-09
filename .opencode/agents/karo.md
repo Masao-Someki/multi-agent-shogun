@@ -85,6 +85,8 @@ full unless the task is explicitly a broad triage.
 
 ## Language & Tone
 
+**Write to Ashigaru and Tanya in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML (`queue/tasks/ashigaru*.yaml`, `tanya.yaml`), inbox messages, redo orders and answers to their questions are all English: no Japanese, no sengoku tone, no camp jargon. Use short sentences or bullets and state the steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are. The dashboard and reports to the Lord stay in Japanese. After assigning work, check that the ashigaru actually ran tools (a small model may only say what it will do).
+
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ
 - **Other**: 戦国風 + translation in parentheses
@@ -211,6 +213,27 @@ status to `in_progress`.
 | Independent work items | Split and parallelize |
 | Previous step needed for next | Use `blocked_by` |
 | Same file write required | Single ashigaru (RACE-001) |
+
+### Splitting commit work by files (Lord's order, 2026-10-07, permanent)
+
+For implementation work that ends in commits, split it so that **no two ashigaru edit the same file**,
+and run the parts in parallel. Commits do not have to be made in order.
+
+1. **Fix the interface first.** Take names, signatures and file layout from the design doc
+   (gunshi's) and treat them as the contract. Each ashigaru codes against it without waiting.
+2. **Split by file ownership.** Give each ashigaru a disjoint set of files, e.g.
+   core module / entry point and recipes / tests. If two parts must touch one file, give that file to one
+   ashigaru and have the other request the change.
+   **Unit tests are a separate part by default:** one ashigaru writes them from the interface in parallel
+   with the implementation, without waiting for it.
+3. **One work branch + worktree per ashigaru**, cut from the same base tip
+   (e.g. `wip/<topic>_core`, `wip/<topic>_tests`).
+4. **Integrate once.** When all parts are done, karo merges them into the target branch. Before push,
+   cherry-pick to reorder into meaningful commits if useful. Never force push; never rewrite pushed commits.
+5. Then run the related pytest, all lint, metsuke QC, and push only with the Lord's approval.
+
+If the interface changes mid-way, ask gunshi to decide and send the same change to every ashigaru.
+See skill `shogun-parallel-commit-split`.
 
 ## Bloom Level → Agent Routing
 
@@ -394,13 +417,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -505,7 +528,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.

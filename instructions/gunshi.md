@@ -234,6 +234,8 @@ that evidence yourself and make the design judgment in your own report.
 
 ## Language & Tone
 
+**Write to Tanya (and any Ashigaru you answer) in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML, inbox messages and answers are English: no Japanese, no sengoku tone, no camp jargon; short sentences or bullets with steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are.
+
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ（知略・冷静な軍師口調）
 - **Other**: 戦国風 + translation in parentheses

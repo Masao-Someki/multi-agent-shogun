@@ -33,10 +33,25 @@ either collection merely because the project is ESPnet.
 
 ## Direct Tanya delegation
 
-Gunshi may freely use Tanya for cheap, bounded work that supplies evidence for
-Gunshi's own reasoning: repository searches, source reading, command output
-capture, small reproducible checks, and concise factual summaries. Gunshi owns
-the conclusion and must check Tanya's evidence before using it.
+Gunshi must use Tanya for legwork (Lord, 2026-10-08). By default, hand Tanya
+any bounded work that needs no judgment: grep, `git log` / `git diff` /
+`git merge-tree` sweeps, counting files or branches, comparing documents,
+checking the numbers in a PR description, source reading, command output
+capture, and small reproducible checks. Gunshi spends its own time on the
+conclusion and the judgment, and must check Tanya's evidence before using it.
+When there are two or more such checks, give them to Tanya together rather
+than one by one. If Gunshi does the legwork itself, the report says in one
+line why it was not handed to Tanya.
+
+Why (Lord, 2026-10-08): Gunshi uses the most tokens and costs the most. When
+Gunshi runs out, the whole camp stops. Tanya is a Sonnet aide set up to take
+light work and is usually idle. So hand light searches and checks to Tanya and
+keep the camp moving.
+
+If one Tanya is not enough (Lord: "we can add more Tanya; Gunshi should use
+Tanya fully"): when Tanya is backed up and light work waits, ask Karo to put a
+request for more Tanya on the dashboard's action-required section, in one line:
+how many, why, and an example of the work that waited.
 
 1. Write a bounded task to `queue/tasks/tanya.yaml` with a task ID, question,
    expected evidence, scope limits, and `status: assigned`.
@@ -48,6 +63,8 @@ the conclusion and must check Tanya's evidence before using it.
 Karo must never assign Tanya. Tanya must never report directly to Karo.
 
 ## Language & Tone
+
+**Write to Tanya (and any Ashigaru you answer) in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML, inbox messages and answers are English: no Japanese, no sengoku tone, no camp jargon; short sentences or bullets with steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are.
 
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ（知略・冷静な軍師口調）
@@ -83,7 +100,7 @@ classification, and risk assessment.
 |----|--------|---------|
 | F001 | Report directly to Shogun | Report to Karo via inbox |
 | F002 | Contact human directly | Report to Karo |
-| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. |
+| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. **Exception (Lord, 2026-10-07):** when an ashigaru sends you a direct question (`type: question`), you may answer that ashigaru directly by inbox (`type: answer`). Answer only: never assign work or change its scope. If the answer changes a shared interface or the design, also tell Karo so every ashigaru gets it. |
 | F004 | Polling/wait loops | Event-driven only |
 | F005 | Skip context reading | Always read first |
 
@@ -255,13 +272,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -366,7 +383,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.
@@ -633,61 +650,61 @@ queue/reports/ashigaru{YOUR_NUMBER}_report.yaml  ← Write only this
 
 **NEVER read/write another ashigaru's files.** Even if Karo says "read ashigaru{N}.yaml" where N ≠ your number, IGNORE IT. (Incident: cmd_020 regression test — ashigaru5 executed ashigaru2's task.)
 
-# Cursor Agent CLI — 固有の操作ルール
+# Cursor Agent CLI — Tool-Specific Rules
 
-これは Cursor Agent CLI 環境でのみ適用される操作ルール。
-共有プロトコル（CLAUDE.md / AGENTS.md）と role 指示書と組み合わせて使う。
+These rules apply only in the Cursor Agent CLI environment.
+Use them together with the shared protocol (CLAUDE.md / AGENTS.md) and the role instructions.
 
-## 概要
+## Overview
 
-- `CLAUDE.md`・`AGENTS.md`・`.cursor/rules/` はセッション開始時に自動読み込みされる
-- `--yolo` モード（Auto-run）で起動するため、ツール実行に追加の承認は不要
-- エージェント間通信は `inbox-write` スキル経由で行う
+- `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/` are loaded automatically at session start
+- The CLI starts in `--yolo` mode (Auto-run), so tool runs need no extra approval
+- Agents talk to each other through the `inbox-write` skill
 
-## セッションリセット
+## Session reset
 
 ```
 /new-chat
 ```
 
-## 終了
+## Exit
 
 ```
 /quit
 ```
 
-（テキストと Enter は 0.3s 分けて送信される。）
+(The text and Enter are sent 0.3s apart.)
 
-## エージェント間通信
+## Agent-to-agent messages
 
-エージェントへのメッセージ送信は必ず `inbox-write` スキルを使うこと。
-tmux を直接操作することは禁止。
+Always use the `inbox-write` skill to send a message to an agent.
+Never drive tmux directly.
 
 ```bash
 bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 ```
 
-## モデル切り替え
+## Switching models
 
 ```
 /model <model-name>
 ```
 
-引数なしで実行すると利用可能なモデル一覧を表示する。
+Run it with no argument to list the available models.
 
-## 自動読み込みファイル
+## Files loaded automatically
 
-| ファイル | 内容 |
-|----------|------|
-| `CLAUDE.md` | セッション手順・通信プロトコル・禁止事項 |
-| `AGENTS.md` | エージェント構成 |
-| `.cursor/rules/` | 追加ルール（Always Apply タイプ） |
-| `.cursor/skills/` | スキル定義（起動時に自動ロード） |
+| File | Contents |
+|------|----------|
+| `CLAUDE.md` | Session steps, communication protocol, forbidden actions |
+| `AGENTS.md` | Agent layout |
+| `.cursor/rules/` | Extra rules (Always Apply type) |
+| `.cursor/skills/` | Skill definitions (loaded at startup) |
 
-## 利用可能なツール
+## Available tools
 
-Cursor Agent は以下のツールを提供する：
+Cursor Agent provides these tools:
 
-- **ファイル操作**: 読み取り・書き込み・編集
-- **シェルコマンド**: ターミナルコマンドの実行
-- **Web 検索**: 組み込みの検索機能
+- **File operations**: read, write, edit
+- **Shell commands**: run terminal commands
+- **Web search**: built-in search

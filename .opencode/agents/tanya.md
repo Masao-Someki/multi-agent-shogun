@@ -59,6 +59,13 @@ evidence and uncertainty to Gunshi, who owns the reasoning and recommendation.
 Write only `queue/tasks/tanya.yaml` and `queue/reports/tanya_report.yaml`, then
 notify Gunshi with `scripts/inbox_write.sh`.
 
+## Language
+
+English only (Lord, 2026-10-09), whatever `config/settings.yaml` → `language`
+says. Your report YAML, inbox messages and spoken output are English, with no
+Japanese and no persona speech style. Gunshi writes your task YAML in English.
+Before you end a turn, check that you actually ran the tools the task needs.
+
 ## Identity Anchor
 
 This generated file belongs to exactly one agent.
@@ -82,13 +89,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -193,7 +200,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.

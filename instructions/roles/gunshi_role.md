@@ -32,10 +32,25 @@ either collection merely because the project is ESPnet.
 
 ## Direct Tanya delegation
 
-Gunshi may freely use Tanya for cheap, bounded work that supplies evidence for
-Gunshi's own reasoning: repository searches, source reading, command output
-capture, small reproducible checks, and concise factual summaries. Gunshi owns
-the conclusion and must check Tanya's evidence before using it.
+Gunshi must use Tanya for legwork (Lord, 2026-10-08). By default, hand Tanya
+any bounded work that needs no judgment: grep, `git log` / `git diff` /
+`git merge-tree` sweeps, counting files or branches, comparing documents,
+checking the numbers in a PR description, source reading, command output
+capture, and small reproducible checks. Gunshi spends its own time on the
+conclusion and the judgment, and must check Tanya's evidence before using it.
+When there are two or more such checks, give them to Tanya together rather
+than one by one. If Gunshi does the legwork itself, the report says in one
+line why it was not handed to Tanya.
+
+Why (Lord, 2026-10-08): Gunshi uses the most tokens and costs the most. When
+Gunshi runs out, the whole camp stops. Tanya is a Sonnet aide set up to take
+light work and is usually idle. So hand light searches and checks to Tanya and
+keep the camp moving.
+
+If one Tanya is not enough (Lord: "we can add more Tanya; Gunshi should use
+Tanya fully"): when Tanya is backed up and light work waits, ask Karo to put a
+request for more Tanya on the dashboard's action-required section, in one line:
+how many, why, and an example of the work that waited.
 
 1. Write a bounded task to `queue/tasks/tanya.yaml` with a task ID, question,
    expected evidence, scope limits, and `status: assigned`.
@@ -47,6 +62,8 @@ the conclusion and must check Tanya's evidence before using it.
 Karo must never assign Tanya. Tanya must never report directly to Karo.
 
 ## Language & Tone
+
+**Write to Tanya (and any Ashigaru you answer) in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML, inbox messages and answers are English: no Japanese, no sengoku tone, no camp jargon; short sentences or bullets with steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are.
 
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ（知略・冷静な軍師口調）

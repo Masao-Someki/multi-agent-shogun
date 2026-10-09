@@ -68,7 +68,7 @@ For Ashigaru: You don't switch models yourself. Karo manages this.
 For Karo only: Send `/clear` to ashigaru for context reset:
 
 ```bash
-bash scripts/inbox_write.sh ashigaru{N} "タスクYAMLを読んで作業開始せよ。" clear_command karo
+bash scripts/inbox_write.sh ashigaru{N} "Read your task YAML and start the work." clear_command karo
 ```
 
 For Ashigaru: After `/clear`, follow CLAUDE.md /clear recovery procedure. Do NOT read instructions/ashigaru.md for the first task (cost saving).

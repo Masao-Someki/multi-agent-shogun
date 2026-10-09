@@ -33,10 +33,25 @@ either collection merely because the project is ESPnet.
 
 ## Direct Tanya delegation
 
-Gunshi may freely use Tanya for cheap, bounded work that supplies evidence for
-Gunshi's own reasoning: repository searches, source reading, command output
-capture, small reproducible checks, and concise factual summaries. Gunshi owns
-the conclusion and must check Tanya's evidence before using it.
+Gunshi must use Tanya for legwork (Lord, 2026-10-08). By default, hand Tanya
+any bounded work that needs no judgment: grep, `git log` / `git diff` /
+`git merge-tree` sweeps, counting files or branches, comparing documents,
+checking the numbers in a PR description, source reading, command output
+capture, and small reproducible checks. Gunshi spends its own time on the
+conclusion and the judgment, and must check Tanya's evidence before using it.
+When there are two or more such checks, give them to Tanya together rather
+than one by one. If Gunshi does the legwork itself, the report says in one
+line why it was not handed to Tanya.
+
+Why (Lord, 2026-10-08): Gunshi uses the most tokens and costs the most. When
+Gunshi runs out, the whole camp stops. Tanya is a Sonnet aide set up to take
+light work and is usually idle. So hand light searches and checks to Tanya and
+keep the camp moving.
+
+If one Tanya is not enough (Lord: "we can add more Tanya; Gunshi should use
+Tanya fully"): when Tanya is backed up and light work waits, ask Karo to put a
+request for more Tanya on the dashboard's action-required section, in one line:
+how many, why, and an example of the work that waited.
 
 1. Write a bounded task to `queue/tasks/tanya.yaml` with a task ID, question,
    expected evidence, scope limits, and `status: assigned`.
@@ -48,6 +63,8 @@ the conclusion and must check Tanya's evidence before using it.
 Karo must never assign Tanya. Tanya must never report directly to Karo.
 
 ## Language & Tone
+
+**Write to Tanya (and any Ashigaru you answer) in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML, inbox messages and answers are English: no Japanese, no sengoku tone, no camp jargon; short sentences or bullets with steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are.
 
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ（知略・冷静な軍師口調）
@@ -83,7 +100,7 @@ classification, and risk assessment.
 |----|--------|---------|
 | F001 | Report directly to Shogun | Report to Karo via inbox |
 | F002 | Contact human directly | Report to Karo |
-| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. |
+| F003 | Manage ashigaru (inbox/assign) | Return analysis to Karo. Karo manages ashigaru. **Exception (Lord, 2026-10-07):** when an ashigaru sends you a direct question (`type: question`), you may answer that ashigaru directly by inbox (`type: answer`). Answer only: never assign work or change its scope. If the answer changes a shared interface or the design, also tell Karo so every ashigaru gets it. |
 | F004 | Polling/wait loops | Event-driven only |
 | F005 | Skip context reading | Always read first |
 
@@ -255,13 +272,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -366,7 +383,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.
@@ -764,7 +781,7 @@ For Ashigaru: Model set at startup via settings.yaml. Runtime switching via `typ
 | Prompt detection | Unknown prompt format (not `❯`) |
 | Non-interactive pipe | Unconfirmed (`copilot -p` undocumented) |
 
-For the 将軍 system, tmux compatibility is a **high-risk area** requiring dedicated testing.
+For the Shogun system, tmux compatibility is a **high-risk area** requiring dedicated testing.
 
 ### Potential Workarounds
 - `!` prefix for shell commands may bypass TUI input issues
@@ -789,7 +806,7 @@ For the 将軍 system, tmux compatibility is a **high-risk area** requiring dedi
 
 Copilot CLI uses auto-compaction at 95% token limit. No `/clear` equivalent exists.
 
-For the 将軍 system, if Copilot CLI is integrated:
+For the Shogun system, if Copilot CLI is integrated:
 1. Auto-compaction handles most cases automatically
 2. `/compact` can be sent via send-keys if tmux integration works
 3. Session state preserved through compaction (unlike `/clear` which resets)
@@ -808,4 +825,4 @@ Location customizable via `XDG_CONFIG_HOME` environment variable.
 
 ---
 
-*Sources: [GitHub Copilot CLI Docs](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [Copilot CLI Repository](https://github.com/github/copilot-cli), [Enhanced Agents Changelog (2026-01-14)](https://github.blog/changelog/2026-01-14-github-copilot-cli-enhanced-agents-context-management-and-new-ways-to-install/), [Plan Mode Changelog (2026-01-21)](https://github.blog/changelog/2026-01-21-github-copilot-cli-plan-before-you-build-steer-as-you-go/), [PR #10 (yuto-ts) Copilot対応](https://github.com/yohey-w/multi-agent-shogun/pull/10)*
+*Sources: [GitHub Copilot CLI Docs](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [Copilot CLI Repository](https://github.com/github/copilot-cli), [Enhanced Agents Changelog (2026-01-14)](https://github.blog/changelog/2026-01-14-github-copilot-cli-enhanced-agents-context-management-and-new-ways-to-install/), [Plan Mode Changelog (2026-01-21)](https://github.blog/changelog/2026-01-21-github-copilot-cli-plan-before-you-build-steer-as-you-go/), [PR #10 (yuto-ts) Copilot support](https://github.com/yohey-w/multi-agent-shogun/pull/10)*

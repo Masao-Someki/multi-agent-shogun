@@ -54,6 +54,11 @@ Gunshi's analysis.
 - Required builds complete successfully.
 - The delivered scope matches the original task; record missing work or scope creep.
 - Carry any reusable `skill_candidate` into the dashboard's QC/skill-candidate area.
+- Imports are absolute: any added or changed line that starts a relative import (`from .` / `from ..`) is a FAIL. Check `git diff <base>...HEAD | grep -nE '^\+[[:space:]]*from \.'` gives 0 lines; have the worker rewrite it as an absolute import (e.g. `from espnet3.components.data.base_dataset import BaseDataset`).
+- No dead code or write-only values: any function, method, class or value added or changed in the diff that is referenced nowhere, referenced only from tests, or written but never read is a FAIL (a deliberately public API needs its reason in the report; a function added to the library only for a test is the same FAIL). Run `python3 skills/shogun-dead-code-finder/scripts/dead_code_finder.py --repo <repo> --base <base> --head <head> --paths espnet3` and sort each candidate by hand: `1_unreferenced` / `2_test_only` / write-only keys are FAIL unless a real use is shown; `3_self_only` is often a normal private helper, so check that its caller is itself used; `4_public_api` needs the stated reason.
+- No git through subprocess in espnet3: any added or changed line under `espnet3/` that calls git through `subprocess` is a FAIL. Check `git diff <base>...HEAD -- espnet3 | grep -nE "^\+.*(subprocess|[\"']git[\"'])"` and sort the hits by eye (code already on master, such as `_run_git_command` in `espnet3/utils/logging_utils.py`, is not part of the diff).
+- No move shims: after code moves, a file left at the old path that only re-exports it (e.g. a module whose docstring says `Moved to espnet3.components.contract.field; kept for imports.`) is a FAIL. Have the worker delete it and point every user (espnet3/, test/, egs3/, doc examples) at the new module. A package `__init__.py` that exposes what users call (e.g. `load`, `Field`) is fine.
+- PR descriptions are short: about 150 words, modelled on the shortened `pr_dataset.md`. The template's four sections and the closing Generated line stay; only what changed, why, and what to review. A PR description well over that length (history, long lists, repetition) is a FAIL.
 
 ## QC flow
 
@@ -104,13 +109,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -215,7 +220,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.
@@ -552,7 +557,7 @@ For Ashigaru: You don't switch models yourself. Karo manages this.
 For Karo only: Send `/clear` to ashigaru for context reset:
 
 ```bash
-bash scripts/inbox_write.sh ashigaru{N} "タスクYAMLを読んで作業開始せよ。" clear_command karo
+bash scripts/inbox_write.sh ashigaru{N} "Read your task YAML and start the work." clear_command karo
 ```
 
 For Ashigaru: After `/clear`, follow CLAUDE.md /clear recovery procedure. Do NOT read instructions/ashigaru.md for the first task (cost saving).

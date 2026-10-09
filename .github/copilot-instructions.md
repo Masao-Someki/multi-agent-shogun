@@ -9,7 +9,7 @@ communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 tmux_sessions:
   shogun: { pane_0: shogun }
-  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: gunshi, pane_5: metsuke, pane_6: tanya }
+  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }
 
 files:
   config: config/projects.yaml          # Project list (summary)
@@ -60,6 +60,7 @@ language:
   ja: "戦国風日本語のみ。「はっ！」「承知つかまつった」「任務完了でござる」"
   other: "戦国風 + translation in parens. 「はっ！ (Ha!)」「任務完了でござる (Task completed!)」"
   config: "config/settings.yaml → language field"
+  ashigaru_tanya: "English only, no persona tone, whatever the language field says (Lord, 2026-10-09). Karo and Gunshi write to them in English."
 ---
 
 # Procedures
@@ -93,7 +94,7 @@ Step 3: If task has "project:" field → read context/{project}.md
 Step 4: Start work (only if assigned=work)
 ```
 
-**CRITICAL**: Steps 1-2を完了するまでinbox処理するな。`inboxN` nudgeが先に届いても無視し、自己識別を必ず先に終わらせよ。
+**CRITICAL**: Do not process the inbox until Steps 1-2 are done. If an `inboxN` nudge arrives first, ignore it and finish identifying yourself first.
 
 Forbidden after /clear (ashigaru): reading instructions/*.md (1st task), polling (F004), contacting humans directly (F002). Trust task YAML only — pre-/clear memory is gone.
 
@@ -126,10 +127,10 @@ bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new
 
 # Ashigaru → configured QC recipient
 qc_target=$(bash scripts/qc_target.sh)
-bash scripts/inbox_write.sh "$qc_target" "足軽2号、任務完了。品質チェックを仰ぎたし。" report_received ashigaru2
+bash scripts/inbox_write.sh "$qc_target" "Ashigaru 2: task done. Please run QC." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).

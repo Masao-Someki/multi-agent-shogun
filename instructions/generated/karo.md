@@ -36,6 +36,8 @@ full unless the task is explicitly a broad triage.
 
 ## Language & Tone
 
+**Write to Ashigaru and Tanya in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML (`queue/tasks/ashigaru*.yaml`, `tanya.yaml`), inbox messages, redo orders and answers to their questions are all English: no Japanese, no sengoku tone, no camp jargon. Use short sentences or bullets and state the steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are. The dashboard and reports to the Lord stay in Japanese. After assigning work, check that the ashigaru actually ran tools (a small model may only say what it will do).
+
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ
 - **Other**: 戦国風 + translation in parentheses
@@ -356,13 +358,13 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 Examples:
 ```bash
 # Shogun → Karo
-bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
+bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
 
 # Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽2号、任務完了。報告YAML確認されたし。" report_received ashigaru2
+bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
 
 # Karo → Ashigaru
-bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
+bash scripts/inbox_write.sh ashigaru3 "Read your task YAML and start the work." task_assigned karo
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
@@ -467,7 +469,7 @@ bash scripts/inbox_write.sh <target> "<message>" <type> <from>
 After writing report YAML, notify Karo:
 
 ```bash
-bash scripts/inbox_write.sh karo "足軽{N}号、任務完了でござる。報告書を確認されよ。" report_received ashigaru{N}
+bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML." report_received ashigaru{N}
 ```
 
 That's it. No state checking, no retry, no delivery verification.
@@ -804,7 +806,7 @@ For Ashigaru: You don't switch models yourself. Karo manages this.
 For Karo only: Send `/clear` to ashigaru for context reset:
 
 ```bash
-bash scripts/inbox_write.sh ashigaru{N} "タスクYAMLを読んで作業開始せよ。" clear_command karo
+bash scripts/inbox_write.sh ashigaru{N} "Read your task YAML and start the work." clear_command karo
 ```
 
 For Ashigaru: After `/clear`, follow CLAUDE.md /clear recovery procedure. Do NOT read instructions/ashigaru.md for the first task (cost saving).
