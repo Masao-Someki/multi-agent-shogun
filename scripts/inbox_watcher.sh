@@ -741,19 +741,22 @@ send_startup_prompt() {
 # CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear, antigravity→/clear
 
 send_context_reset() {
-    if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context; then
-        echo "[$(date)] [SESSION-POOL] Keeping context for $AGENT_ID; task YAML and inbox are the handoff." >&2
-        return 0
-    fi
-
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
+    # Session pool: Claude keeps its pooled session; codex (vLLM workers) starts
+    # every new task from a fresh conversation.  Decided in lib/session_pool.sh.
+    if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context "$effective_cli"; then
+        echo "[$(date)] [SESSION-POOL] Keeping context for $AGENT_ID ($effective_cli); task YAML and inbox are the handoff." >&2
+        return 0
+    fi
+
     # Safety: never auto-reset context for command-layer agents.
-    # Only ashigaru should receive automatic context resets (clear stale task context).
-    # Shogun (human-controlled), Karo (coordinator state), Gunshi (strategic state)
-    # all maintain complex running context that should not be wiped automatically.
-    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ] || [ "$AGENT_ID" = "tanya" ]; then
+    # Shogun (human-controlled), Karo (coordinator state), Gunshi (strategic state),
+    # Metsuke (QC record) all maintain running context that must not be wiped.
+    # Tanya is a worker: on codex it is reset like the ashigaru; on claude the
+    # session-pool check above already keeps its context.
+    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ]; then
         echo "[$(date)] [SKIP] $AGENT_ID: suppressing context reset (command-layer agent)" >&2
         return 0
     fi
@@ -1134,7 +1137,7 @@ for s in data.get('specials', []):
             [ -n "$msg_type" ] || continue
             if [ "$msg_type" = "clear_command" ]; then
                 clear_seen=1
-                if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context; then
+                if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context "$(get_effective_cli_type)"; then
                     echo "[$(date)] [SESSION-POOL] Ignoring clear_command for $AGENT_ID; keeping the role session." >&2
                     continue
                 fi
