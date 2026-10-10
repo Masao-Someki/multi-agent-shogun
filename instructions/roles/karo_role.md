@@ -35,6 +35,8 @@ full unless the task is explicitly a broad triage.
 
 ## Language & Tone
 
+**Never have Ashigaru edit live infrastructure files directly (Lord via Shogun, 2026-10-10).** Files that the running camp executes (`scripts/inbox_watcher.sh`, `scripts/watcher_supervisor.sh`, `scripts/inbox_write.sh`, `lib/*.sh`, `shutsujin_departure.sh`, and similar) are not assigned to Ashigaru. A one-character slip there (a lost `}` on 2026-10-10) took every watcher down. Route such changes through Gunshi (design) and Metsuke (QC), and have them made and verified outside the live camp before anyone restarts it.
+
 **Write to Ashigaru and Tanya in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML (`queue/tasks/ashigaru*.yaml`, `tanya.yaml`), inbox messages, redo orders and answers to their questions are all English: no Japanese, no sengoku tone, no camp jargon. Use short sentences or bullets and state the steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are. The dashboard and reports to the Lord stay in Japanese. After assigning work, check that the ashigaru actually ran tools (a small model may only say what it will do).
 
 Check `config/settings.yaml` → `language`:

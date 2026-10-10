@@ -254,7 +254,9 @@ should_throttle_nudge() {
     if [ "${LAST_NUDGE_COUNT:-}" = "$unread_count" ] && [ "${LAST_NUDGE_TS:-0}" -gt 0 ]; then
         local age=$((now - LAST_NUDGE_TS))
         if [ "$age" -lt "${cooldown_sec}" ]; then
-            echo "[$(date)] [SKIP] Throttling nudge for $AGENT_ID: inbox${unread_count} (${age}s < ${cooldown_sec}s, cli=$effective_cli)" >&2
+            local nudge
+            nudge=$(build_nudge_text "$unread_count")
+            echo "[$(date)] [SKIP] Throttling nudge for $AGENT_ID: $nudge (${age}s < ${cooldown_sec}s, cli=$effective_cli)" >&2
             return 0
         fi
     fi
@@ -307,6 +309,20 @@ get_effective_cli_type() {
     # Fail-closed: when CLI is unknown, take codex-safe path (no C-c, /clear->/new)
     echo "[$(date)] [WARN] CLI unresolved for $AGENT_ID (pane='${pane_cli:-<empty>}', arg='${CLI_TYPE:-<empty>}'). Fallback=codex-safe." >&2
     echo "codex"
+}
+
+# build_nudge_text unread_count
+# Codex workers get their own inbox path and role; "inboxN" was misread as "ashigaruN".
+build_nudge_text() {
+    local unread_count="$1"
+    local effective_cli
+    effective_cli=$(get_effective_cli_type)
+
+    if [[ "$effective_cli" == "codex" ]]; then
+        echo "You are $AGENT_ID. Read queue/inbox/${AGENT_ID}.yaml ($unread_count unread), process them, then do queue/tasks/${AGENT_ID}.yaml if its status is assigned."
+    else
+        echo "inbox${unread_count}"
+    fi
 }
 
 normalize_special_command() {
@@ -889,7 +905,8 @@ session_has_client() {
 #   3. tmux send-keys (短いnudgeのみ、timeout 5s)
 send_wakeup() {
     local unread_count="$1"
-    local nudge="inbox${unread_count}"
+    local nudge
+    nudge=$(build_nudge_text "$1")
 
     if [ "${FINAL_ESCALATION_ONLY:-0}" = "1" ]; then
         echo "[$(date)] [SKIP] FINAL_ESCALATION_ONLY=1, suppressing normal nudge for $AGENT_ID" >&2
@@ -987,7 +1004,8 @@ send_wakeup() {
 # Claude/Codex/OpenCode fall back to a plain nudge.
 send_wakeup_with_escape() {
     local unread_count="$1"
-    local nudge="inbox${unread_count}"
+    local nudge
+    nudge=$(build_nudge_text "$1")
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
