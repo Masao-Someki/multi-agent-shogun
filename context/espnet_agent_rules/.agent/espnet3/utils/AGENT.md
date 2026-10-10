@@ -1,6 +1,6 @@
 # `espnet3/utils/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/utils/
@@ -18,8 +18,8 @@ espnet3/utils/
 
 Cross-cutting helpers used across systems/components/parallel. If a helper here starts encoding
 stage- or system-specific behaviour, it likely belongs in `systems/` or `components/` instead (see
-[`.agent/espnet3/systems/CLAUDE.md`](../systems/CLAUDE.md) /
-[`.agent/espnet3/components/CLAUDE.md`](../components/CLAUDE.md)).
+[`.agent/espnet3/systems/AGENT.md`](../systems/AGENT.md) /
+[`.agent/espnet3/components/AGENT.md`](../components/AGENT.md)).
 
 - **`config_utils.py`** -- `load_config_with_defaults`, `load_and_merge_config`,
   `load_default_config`: the Hydra/OmegaConf config-loading layer every `run.py` calls. Also defines
@@ -41,7 +41,7 @@ stage- or system-specific behaviour, it likely belongs in `systems/` or `compone
   `pip freeze`, environment) and of arbitrary component instances for debugging.
 - **`publication_utils.py`** -- `pack_model`, `upload_model`: collects config/checkpoint/tokenizer/
   stats artifacts into a bundle with rewritten relative paths, plus the README/`meta.yaml` generation
-  helpers. Consumed by [`.agent/espnet3/publication/CLAUDE.md`](../publication/CLAUDE.md)'s
+  helpers. Consumed by [`.agent/espnet3/publication/AGENT.md`](../publication/AGENT.md)'s
   `InferenceModel`.
 - **`writer_utils.py`** -- `write_artifact`: the typed output writer (`scp`/`text`/`npy`/custom
   `_target_`) the `infer` stage uses to persist per-utterance outputs.

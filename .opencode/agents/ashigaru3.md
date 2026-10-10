@@ -62,7 +62,7 @@ Task YAML and messages from Karo and Gunshi also come to you in English.
 ## ESPnet Task Context
 
 For work in the ESPnet checkout, first read
-`context/espnet_agent_rules/.agent/CLAUDE.md`. Then read only the narrowest
+`context/espnet_agent_rules/.agent/AGENT.md`. Then read only the narrowest
 matching rules file under `.agent/espnet3/`, `.agent/egs3/`, or `.agent/ci/`.
 These are project constraints, not optional background. Do not load the whole
 rules tree unless the assigned task spans those areas.

@@ -1,6 +1,6 @@
 # `espnet3/publication/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/publication/
@@ -13,14 +13,14 @@ espnet3/publication/
 
 Packaging a trained model or a demo app for distribution (Hugging Face Hub or a local bundle). The
 `pack_model`/`upload_model` free functions themselves live in
-`espnet3/utils/publication_utils.py` (see [`.agent/espnet3/utils/CLAUDE.md`](../utils/CLAUDE.md)) --
+`espnet3/utils/publication_utils.py` (see [`.agent/espnet3/utils/AGENT.md`](../utils/AGENT.md)) --
 this package covers packed-model *consumption* (`inference_model.py`) and demo packing/serving.
 
 - **`inference_model.py`** -- `InferenceModel`: loads a bundle produced by `pack_model`
   -- either a local directory or a Hugging Face Hub tag -- and exposes
   a single callable inference API (`InferenceModel.from_pretrained(...)`, `model(**inputs)`). Also
   used by `ci/test_integration_espnet3_publication_check.py` to validate a packed bundle from outside
-  the recipe tree (see [`.agent/ci/CLAUDE.md`](../../ci/CLAUDE.md)).
+  the recipe tree (see [`.agent/ci/AGENT.md`](../../ci/AGENT.md)).
 - **`demo/packing.py`** -- `pack_demo(system)` / `upload_demo(system)`: assembles a runnable demo
   bundle (app script, UI assets, a relative or bundled copy of the packed model) and pushes it to a
   Hugging Face Space.

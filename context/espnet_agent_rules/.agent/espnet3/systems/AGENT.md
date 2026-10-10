@@ -1,6 +1,6 @@
 # `espnet3/systems/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/systems/
@@ -64,12 +64,12 @@ but ESPnet3's conventions and maintenance needs take precedence.
   free functions below.
 - **`base/training.py`** -- `collect_stats(config)` / `train(config)`: builds the
   `ESPnetLightningModule` + `ESPnet3LightningTrainer` (see
-  [`.agent/espnet3/components/CLAUDE.md`](../components/CLAUDE.md)) and runs stats collection or
+  [`.agent/espnet3/components/AGENT.md`](../components/AGENT.md)) and runs stats collection or
   `trainer.fit`.
 - **`base/inference.py`**, **`inference_provider.py`**, **`inference_runner.py`** -- the `infer` stage.
   `infer(config)` resolves the configured test sets and dispatches an `InferenceRunner` (a
   `parallel.BaseRunner` subclass -- see
-  [`.agent/espnet3/parallel/CLAUDE.md`](../parallel/CLAUDE.md)) backed by an `InferenceProvider` (an
+  [`.agent/espnet3/parallel/AGENT.md`](../parallel/AGENT.md)) backed by an `InferenceProvider` (an
   `EnvironmentProvider`) to produce per-utterance hypotheses via `writer_utils.write_artifact`.
 - **`base/metric.py`** -- `measure(metrics_config)`: the `measure` stage; resolves test sets from
   `inference_dir`, instantiates each configured `BaseMetric`, and writes `metrics.json`.
@@ -107,5 +107,5 @@ but ESPnet3's conventions and maintenance needs take precedence.
   `parallel.BaseRunner`.
 
 For adding a new stage to a `System`, or subclassing one for recipe-specific behaviour, see the root
-guide's "Adding a new pipeline stage" section and [`.agent/egs3/CLAUDE.md`](../../egs3/CLAUDE.md)'s
+guide's "Adding a new pipeline stage" section and [`.agent/egs3/AGENT.md`](../../egs3/AGENT.md)'s
 "When you need a custom System" section.

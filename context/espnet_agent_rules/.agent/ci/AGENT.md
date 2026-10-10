@@ -1,6 +1,6 @@
 # `ci/` -- CI scripts relevant to espnet3
 
-See [`.agent/CLAUDE.md`](../CLAUDE.md) for cross-cutting guidance (dev setup and
+See [`.agent/AGENT.md`](../AGENT.md) for cross-cutting guidance (dev setup and
 docstring/naming conventions). `ci/` is flat -- no subdirectories.
 
 ```
@@ -50,4 +50,4 @@ Wraps two independent checks: `flake8 --extend-ignore=D` over legacy directories
 disabled there), and a strict `flake8` (docstrings included) over whatever directory is passed as
 `$1` -- currently `espnet3` (called as `test_flake8.sh espnet3` by `test_python_espnet3.sh`). New
 `espnet3/` code is therefore always checked against `flake8-docstrings`; see the docstring guide in
-the root `.agent/CLAUDE.md`.
+the root `.agent/AGENT.md`.

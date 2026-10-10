@@ -1,6 +1,6 @@
 # `espnet3/components/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/components/
@@ -26,9 +26,9 @@ espnet3/components/
 ```
 
 Reusable building blocks the systems in
-[`.agent/espnet3/systems/CLAUDE.md`](../systems/CLAUDE.md) are assembled from. Nothing in
+[`.agent/espnet3/systems/AGENT.md`](../systems/AGENT.md) are assembled from. Nothing in
 `components/` knows about "stages" by name -- that concept lives in `systems/` and
-`utils/stages_utils.py` (see [`.agent/espnet3/utils/CLAUDE.md`](../utils/CLAUDE.md)).
+`utils/stages_utils.py` (see [`.agent/espnet3/utils/AGENT.md`](../utils/AGENT.md)).
 
 ## `data/`
 
@@ -41,7 +41,7 @@ Reusable building blocks the systems in
   preprocessing), `ShardedDataset(ABC)` (the sharding contract).
 - **`dataset_builder.py`** -- `DatasetBuilder(ABC)`: the contract every recipe's
   `dataset/builder.py` implements (`is_source_prepared`, `prepare_source`, `is_built`, `build`).
-  See [`.agent/egs3/CLAUDE.md`](../../egs3/CLAUDE.md) for two real implementations to copy from when
+  See [`.agent/egs3/AGENT.md`](../../egs3/AGENT.md) for two real implementations to copy from when
   creating a new recipe.
 - **`dataset_module.py`** -- resolves a dataset reference (`data_src: "<recipe>/<task>"`, a
   dotted module path, or the recipe's own local `dataset/__init__.py`) to a `DatasetBuilder`/`Dataset`
@@ -59,7 +59,7 @@ Reusable building blocks the systems in
 - **`collect_stats.py`** -- `collect_stats_batch` / `collect_stats(config)`: the `collect_stats`
   stage's implementation, plus `CollectStatsRunner`/`CollectStatsInferenceProvider`
   (a `parallel.BaseRunner`/`EnvironmentProvider` pair -- see
-  [`.agent/espnet3/parallel/CLAUDE.md`](../parallel/CLAUDE.md)) for the parallel path.
+  [`.agent/espnet3/parallel/AGENT.md`](../parallel/AGENT.md)) for the parallel path.
 
 ## `modeling/`
 

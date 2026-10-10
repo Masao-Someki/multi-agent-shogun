@@ -1,6 +1,6 @@
 # `espnet3/cli/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/cli/
@@ -24,7 +24,7 @@ registered under `espnet3/cli/<name>/`; today the only subcommand is `clone`.
   into the cloned `publication.yaml` / `demo.yaml` (`_inject_corpus_system`). The clone is a plain
   directory, not a Python package (no `__init__.py`), and only needs `espnet3` installed to run.
 
-See [`.agent/egs3/CLAUDE.md`](../../egs3/CLAUDE.md) for the "clone and keep working in it" workflow
+See [`.agent/egs3/AGENT.md`](../../egs3/AGENT.md) for the "clone and keep working in it" workflow
 this subcommand exists to support, and for what a cloned recipe's `dataset/`/`src/` are expected to
 contain.
 

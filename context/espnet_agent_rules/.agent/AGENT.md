@@ -5,7 +5,7 @@ Internal reference for anyone writing or reviewing code in `espnet3/`, `egs3/`, 
 (for that, see each recipe's `README.md` and the package docstrings themselves).
 
 `.agent/` mirrors the source tree: every package that has its own reference doc keeps it at the
-matching path (e.g. `espnet3/components/` is documented at `.agent/espnet3/components/CLAUDE.md`).
+matching path (e.g. `espnet3/components/` is documented at `.agent/espnet3/components/AGENT.md`).
 This file is the index plus the guidance that isn't specific to one package. All of these files are
 hand-maintained; when a package's responsibilities change, update the matching doc in the same PR.
 
@@ -15,16 +15,16 @@ hand-maintained; when a package's responsibilities change, update the matching d
 
 | Path | Doc | Owns |
 |---|---|---|
-| `ci/` | [`ci/CLAUDE.md`](ci/CLAUDE.md) | CI scripts: lint, unit tests, integration tests, publication/demo smoke tests |
-| `egs3/` | [`egs3/CLAUDE.md`](egs3/CLAUDE.md) | Recipes (`TEMPLATE`, `mini_an4`, `librispeech_100`, `aishell`) + how to create a new one |
-| `espnet3/cli/` | [`espnet3/cli/CLAUDE.md`](espnet3/cli/CLAUDE.md) | The `espnet3` console script (`clone` subcommand) |
-| `espnet3/systems/` | [`espnet3/systems/CLAUDE.md`](espnet3/systems/CLAUDE.md) | `BaseSystem`/`ASRSystem`/`TTSSystem` -- the staged pipeline |
-| `espnet3/components/` | [`espnet3/components/CLAUDE.md`](espnet3/components/CLAUDE.md) | data / modeling / trainers / callbacks / metrics / optimizers building blocks |
-| `espnet3/parallel/` | [`espnet3/parallel/CLAUDE.md`](espnet3/parallel/CLAUDE.md) | Runner/Provider execution model |
-| `espnet3/publication/` | [`espnet3/publication/CLAUDE.md`](espnet3/publication/CLAUDE.md) | Model / demo packaging |
-| `espnet3/utils/` | [`espnet3/utils/CLAUDE.md`](espnet3/utils/CLAUDE.md) | Cross-cutting helpers: config loading, stage dispatch, logging, ... |
+| `ci/` | [`ci/AGENT.md`](ci/AGENT.md) | CI scripts: lint, unit tests, integration tests, publication/demo smoke tests |
+| `egs3/` | [`egs3/AGENT.md`](egs3/AGENT.md) | Recipes (`TEMPLATE`, `mini_an4`, `librispeech_100`, `aishell`) + how to create a new one |
+| `espnet3/cli/` | [`espnet3/cli/AGENT.md`](espnet3/cli/AGENT.md) | The `espnet3` console script (`clone` subcommand) |
+| `espnet3/systems/` | [`espnet3/systems/AGENT.md`](espnet3/systems/AGENT.md) | `BaseSystem`/`ASRSystem`/`TTSSystem` -- the staged pipeline |
+| `espnet3/components/` | [`espnet3/components/AGENT.md`](espnet3/components/AGENT.md) | data / modeling / trainers / callbacks / metrics / optimizers building blocks |
+| `espnet3/parallel/` | [`espnet3/parallel/AGENT.md`](espnet3/parallel/AGENT.md) | Runner/Provider execution model |
+| `espnet3/publication/` | [`espnet3/publication/AGENT.md`](espnet3/publication/AGENT.md) | Model / demo packaging |
+| `espnet3/utils/` | [`espnet3/utils/AGENT.md`](espnet3/utils/AGENT.md) | Cross-cutting helpers: config loading, stage dispatch, logging, ... |
 
-There is also a top-level [`espnet3/CLAUDE.md`](espnet3/CLAUDE.md) with just the full `espnet3/`
+There is also a top-level [`espnet3/AGENT.md`](espnet3/AGENT.md) with just the full `espnet3/`
 directory tree and links to the subpackage docs above -- start there if you don't yet know which
 subpackage you need.
 
@@ -35,7 +35,7 @@ This index also carries everything that applies across packages rather than to o
 4. [Dev setup, linting, and PRs](#4-dev-setup-linting-and-prs)
 5. [Adding a new pipeline stage](#5-adding-a-new-pipeline-stage)
 
-(Creating a new *recipe*, as opposed to a new stage, is covered in `egs3/CLAUDE.md` instead, since it
+(Creating a new *recipe*, as opposed to a new stage, is covered in `egs3/AGENT.md` instead, since it
 is almost entirely about `egs3/` file layout.)
 
 ---
@@ -298,7 +298,7 @@ are bare adjectives or verbs: `train` ("is this the training split"), `resolve`,
 | Suffix / prefix | Meaning | Members |
 |---|---|---|
 | `Base*` | Abstract base class **defined in espnet3** (espnet2 uses `Abs*` -- keep `Base*` for espnet3, `Abs*` only when subclassing espnet2's) | `BaseSystem`, `BaseRunner`, `BaseMetric` |
-| `*System` | Owns one task family's staged pipeline | `ASRSystem`, `TTSSystem` (+ recipe-local `RecipeSystem` per `egs3/CLAUDE.md`) |
+| `*System` | Owns one task family's staged pipeline | `ASRSystem`, `TTSSystem` (+ recipe-local `RecipeSystem` per `egs3/AGENT.md`) |
 | `*Task` | espnet2 `AbsTask` bridge | `ASRTask`, `ASRTransducerTask` |
 | `*Runner` / `*Provider` | Always a pair: shard dispatch / per-worker environment | `InferenceRunner`/`InferenceProvider`, `CollectStatsRunner`/`CollectStatsInferenceProvider`, `RemoveLongShortRunner`/`RemoveLongShortProvider`, base `EnvironmentProvider` |
 | `*Builder` | Multi-step constructor with a protocol | `DatasetBuilder` (+ recipe `MiniAn4Builder`, `LibriSpeech100Builder`, `AishellBuilder`), `DataLoaderBuilder` |
@@ -420,7 +420,7 @@ uv pip install -e .
 uv pip install -e ".[asr]"    # add extras as needed, e.g. also "[tts]" or "[enh]"
 ```
 
-**Before opening a PR, run locally** (mirrors `ci/test_python_espnet3.sh`, see `ci/CLAUDE.md`):
+**Before opening a PR, run locally** (mirrors `ci/test_python_espnet3.sh`, see `ci/AGENT.md`):
 
 First verify that the active environment provides `black`, `isort`, `pycodestyle`, `flake8`, and
 `flake8-docstrings`. Install any missing package before running the checks, for example:
@@ -444,10 +444,10 @@ pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q tes
 
 - Keep PRs small: roughly 20 changed files / 2000 changed lines as a soft ceiling.
 - Before pushing a change under `egs3/`, follow the recipe portability review in
-  [`egs3/CLAUDE.md`](egs3/CLAUDE.md): report hard-coded paths, credentials, and
+  [`egs3/AGENT.md`](egs3/AGENT.md): report hard-coded paths, credentials, and
   host-specific parallel settings to the user, and never push credentials.
 - Every change to `espnet3/` needs a new or updated unit test at the mirrored `test/espnet3/` path
-  (section 3 above). A new end-to-end feature needs integration coverage too -- see `ci/CLAUDE.md` for
+  (section 3 above). A new end-to-end feature needs integration coverage too -- see `ci/AGENT.md` for
   what "full workflow" (train -> infer -> measure -> publish -> demo) actually means here.
 - Every new `System` also needs an integration test. Use `mini_an4` and a deliberately small model
   configuration to keep it fast, but exercise both model construction and the recipe's `run.py`
@@ -485,6 +485,6 @@ pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q tes
 7. **Add tests**: a unit test for the new method/module at its mirrored `test/espnet3/...` path, a
    runner-level test if you touched `run.py`'s stage dispatch, and an integration-test addition if the
    stage is meant to run end-to-end in CI (extend `ci/test_integration_espnet3.sh` or add a new CI
-   script following its pattern -- see `ci/CLAUDE.md`).
+   script following its pattern -- see `ci/AGENT.md`).
 8. **Update docs**: the recipe's `README.md` if the stage is recipe-specific, and the matching package
    doc under `.agent/` (section 1) if it changes what a shared package owns.

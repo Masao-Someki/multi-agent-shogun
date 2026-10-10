@@ -1,6 +1,6 @@
 # `espnet3/parallel/`
 
-See [`.agent/CLAUDE.md`](../../CLAUDE.md) for cross-cutting guidance.
+See [`.agent/AGENT.md`](../../AGENT.md) for cross-cutting guidance.
 
 ```
 espnet3/parallel/
@@ -11,8 +11,8 @@ espnet3/parallel/
 ```
 
 The execution model shared by every stage that fans work out across items (`infer`, `collect_stats`,
-`remove_long_short` -- see [`.agent/espnet3/systems/CLAUDE.md`](../systems/CLAUDE.md) and
-[`.agent/espnet3/components/CLAUDE.md`](../components/CLAUDE.md) for the callers).
+`remove_long_short` -- see [`.agent/espnet3/systems/AGENT.md`](../systems/AGENT.md) and
+[`.agent/espnet3/components/AGENT.md`](../components/AGENT.md) for the callers).
 
 - **`base_runner.py`** -- `BaseRunner(ABC)`: shard planning, per-shard locking, dispatch (local /
   Dask), and `concatenate_shard_files` for merging shard outputs back into one file. Subclassed by
@@ -30,7 +30,7 @@ The execution model shared by every stage that fans work out across items (`infe
 Naming convention when adding a new parallel stage: a `*Runner`/`*Provider` pair, named the same way
 as the existing ones (`InferenceRunner`/`InferenceProvider`,
 `CollectStatsRunner`/`CollectStatsInferenceProvider`,
-`RemoveLongShortRunner`/`RemoveLongShortProvider`) -- see `.agent/CLAUDE.md`'s naming conventions
+`RemoveLongShortRunner`/`RemoveLongShortProvider`) -- see `.agent/AGENT.md`'s naming conventions
 section.
 
 ## Recommended usage

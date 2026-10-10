@@ -1,17 +1,17 @@
 # `espnet3/` -- package map
 
-See [`.agent/CLAUDE.md`](../CLAUDE.md) for cross-cutting guidance. Each subpackage below has its own
-`CLAUDE.md` with the detailed package reference -- this file is just the full directory tree plus
+See [`.agent/AGENT.md`](../AGENT.md) for cross-cutting guidance. Each subpackage below has its own
+`AGENT.md` with the detailed package reference -- this file is just the full directory tree plus
 links.
 
 ```
 espnet3/
-├── cli/                        # -> cli/CLAUDE.md
+├── cli/                        # -> cli/AGENT.md
 │   ├── main.py                 # argparse dispatcher, registers subcommands
 │   └── clone/                  # `espnet3 clone` subcommand
 │       ├── command.py          # add_arguments() / run() -- copies + rewrites publication/demo config
 │       └── resolver.py         # resolve_recipe() / list_recipes() -- <dataset>/<task> -> egs3/ path
-├── systems/                     # -> systems/CLAUDE.md -- one class per "system" (task family)
+├── systems/                     # -> systems/AGENT.md -- one class per "system" (task family)
 │   ├── base/                    # BaseSystem + the stage implementations shared by every system
 │   │   ├── system.py            # BaseSystem: stage stubs, stage_log_mapping, create_dataset()
 │   │   ├── training.py          # collect_stats() / train() free functions used by BaseSystem
@@ -26,7 +26,7 @@ espnet3/
 │   └── tts/                      # TTSSystem and everything TTS-specific
 │       ├── system.py                       # TTSSystem(BaseSystem)
 │       └── remove_long_short_{provider,runner}.py   # the remove_long_short filtering stage
-├── components/                  # -> components/CLAUDE.md -- building blocks (not stage-shaped)
+├── components/                  # -> components/AGENT.md -- building blocks (not stage-shaped)
 │   ├── data/                     # dataset abstraction, sharding, collect_stats
 │   │   ├── data_organizer.py     # DataOrganizer, DatasetConfig
 │   │   ├── dataset.py            # CombinedDataset, DatasetWithTransform, ShardedDataset(ABC)
@@ -46,18 +46,18 @@ espnet3/
 │   ├── metrics/base_metric.py    # BaseMetric(ABC) -- the contract asr's CER/WER/TER implement
 │   └── optimizers/                # placeholder package today -- no custom classes yet; optimizers are wired
 │                                   # directly via Hydra `_target_: torch.optim.*` in training.yaml
-├── parallel/                     # -> parallel/CLAUDE.md -- Runner/Provider execution model
+├── parallel/                     # -> parallel/AGENT.md -- Runner/Provider execution model
 │   ├── base_runner.py            # BaseRunner(ABC) -- shard planning, locking, dispatch
 │   ├── env_provider.py           # EnvironmentProvider(ABC) -- "what one worker needs to run one item"
 │   ├── inference_provider.py     # a second, standalone InferenceProvider (distinct from systems/base's)
 │   └── parallel.py               # set_parallel/get_parallel_config (module-global context), build_client/get_client (Dask)
-├── publication/                  # -> publication/CLAUDE.md -- packaging a trained model / demo
+├── publication/                  # -> publication/AGENT.md -- packaging a trained model / demo
 │   ├── inference_model.py        # InferenceModel -- loads a packed bundle (local dir or HF hub tag)
 │   └── demo/
 │       ├── packing.py            # pack_demo() / upload_demo()
 │       ├── assets.py             # UIAsset(base) / UIAssetRegistry / DefaultAudioUI / DefaultTextUI
 │       └── session.py            # DemoSession / load_demo_session -- runtime wrapper used by the Gradio app
-└── utils/                        # -> utils/CLAUDE.md -- cross-cutting helpers, NOT stage- or system-specific
+└── utils/                        # -> utils/AGENT.md -- cross-cutting helpers, NOT stage- or system-specific
     ├── config_utils.py           # load_config_with_defaults / load_and_merge_config -- the Hydra/OmegaConf loading layer
     ├── run_utils.py               # apply_training_experiment_context / validate_experiment_context -- bridges the
     │                               # five per-recipe config files (exp_dir/exp_tag/inference_dir propagation)
@@ -70,9 +70,9 @@ espnet3/
     └── download_utils.py            # setup_logger / download_url / extract_targz / DownloadProgress
 ```
 
-- [`cli/CLAUDE.md`](cli/CLAUDE.md)
-- [`systems/CLAUDE.md`](systems/CLAUDE.md)
-- [`components/CLAUDE.md`](components/CLAUDE.md)
-- [`parallel/CLAUDE.md`](parallel/CLAUDE.md)
-- [`publication/CLAUDE.md`](publication/CLAUDE.md)
-- [`utils/CLAUDE.md`](utils/CLAUDE.md)
+- [`cli/AGENT.md`](cli/AGENT.md)
+- [`systems/AGENT.md`](systems/AGENT.md)
+- [`components/AGENT.md`](components/AGENT.md)
+- [`parallel/AGENT.md`](parallel/AGENT.md)
+- [`publication/AGENT.md`](publication/AGENT.md)
+- [`utils/AGENT.md`](utils/AGENT.md)

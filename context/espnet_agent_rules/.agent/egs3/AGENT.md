@@ -1,6 +1,6 @@
 # `egs3/` -- recipes
 
-See [`.agent/CLAUDE.md`](../CLAUDE.md) for cross-cutting guidance (dev setup and
+See [`.agent/AGENT.md`](../AGENT.md) for cross-cutting guidance (dev setup and
 docstring/naming conventions).
 
 ```
@@ -35,7 +35,7 @@ egs3/
 ```
 
 Cloning: `espnet3 clone <dataset>/<task> [--project DIR]` (see
-[`espnet3/cli/CLAUDE.md`](../espnet3/cli/CLAUDE.md)) copies `conf/`, `dataset/`, `src/`, `run.py`,
+[`espnet3/cli/AGENT.md`](../espnet3/cli/AGENT.md)) copies `conf/`, `dataset/`, `src/`, `run.py`,
 `README.md`, `path.sh` out of `egs3/` into a standalone directory that only needs `espnet3` installed
 -- it no longer needs to live inside this checkout.
 
@@ -148,7 +148,7 @@ corpus's specifics live; get this right before touching anything else.
 from the reference recipe (or `egs3/TEMPLATE/<task>/conf/` for the fully-commented defaults) and
 adjust: the `dataset:` block's `data_src`/`data_src_args` entries (or point them at your recipe's own
 `dataset/` via a bare `data_src_args:` entry with no `data_src`, which resolves to the recipe-local
-module -- see `espnet3/components/CLAUDE.md`'s `dataset_module.py` entry), the tokenizer settings, and
+module -- see `espnet3/components/AGENT.md`'s `dataset_module.py` entry), the tokenizer settings, and
 the model config. Keep only values that override the TEMPLATE defaults; do not copy unchanged default
 values into the recipe. Keep `_recursive_: false` on the `dataset:` block when it is not inherited.
 
