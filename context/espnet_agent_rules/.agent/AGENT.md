@@ -16,7 +16,7 @@ hand-maintained; when a package's responsibilities change, update the matching d
 | Path | Doc | Owns |
 |---|---|---|
 | `ci/` | [`ci/AGENT.md`](ci/AGENT.md) | CI scripts: lint, unit tests, integration tests, publication/demo smoke tests |
-| `egs3/` | [`egs3/AGENT.md`](egs3/AGENT.md) | Recipes (`TEMPLATE`, `mini_an4`, `librispeech_100`, `aishell`) + how to create a new one |
+| `egs3/` | [`egs3/AGENT.md`](egs3/AGENT.md) | Recipes (`TEMPLATE`, `mini_an4`, `librispeech_100`) + how to create a new one |
 | `espnet3/cli/` | [`espnet3/cli/AGENT.md`](espnet3/cli/AGENT.md) | The `espnet3` console script (`clone` subcommand) |
 | `espnet3/systems/` | [`espnet3/systems/AGENT.md`](espnet3/systems/AGENT.md) | `BaseSystem`/`ASRSystem`/`TTSSystem` -- the staged pipeline |
 | `espnet3/components/` | [`espnet3/components/AGENT.md`](espnet3/components/AGENT.md) | data / modeling / trainers / callbacks / metrics / optimizers building blocks |
@@ -301,9 +301,9 @@ are bare adjectives or verbs: `train` ("is this the training split"), `resolve`,
 | `*System` | Owns one task family's staged pipeline | `ASRSystem`, `TTSSystem` (+ recipe-local `RecipeSystem` per `egs3/AGENT.md`) |
 | `*Task` | espnet2 `AbsTask` bridge | `ASRTask`, `ASRTransducerTask` |
 | `*Runner` / `*Provider` | Always a pair: shard dispatch / per-worker environment | `InferenceRunner`/`InferenceProvider`, `CollectStatsRunner`/`CollectStatsInferenceProvider`, `RemoveLongShortRunner`/`RemoveLongShortProvider`, base `EnvironmentProvider` |
-| `*Builder` | Multi-step constructor with a protocol | `DatasetBuilder` (+ recipe `MiniAn4Builder`, `LibriSpeech100Builder`, `AishellBuilder`), `DataLoaderBuilder` |
-| `*Dataset` | A `torch.utils.data.Dataset` | `CombinedDataset`, `ShardedDataset`, `DatasetWithTransform`, recipe `MiniAn4Dataset`/`LibriSpeech100Dataset`/`AishellDataset` |
-| `*Example` / `*Entry` | An immutable **row record** inside a recipe dataset (dataclass) | `LibriSpeechExample`, `AishellExample`, `ManifestEntry` (pick `*Example` for new recipes; `ManifestEntry` is the outlier) |
+| `*Builder` | Multi-step constructor with a protocol | `DatasetBuilder` (+ recipe `MiniAn4Builder`, `LibriSpeech100Builder`), `DataLoaderBuilder` |
+| `*Dataset` | A `torch.utils.data.Dataset` | `CombinedDataset`, `ShardedDataset`, `DatasetWithTransform`, recipe `MiniAn4Dataset`/`LibriSpeech100Dataset` |
+| `*Example` / `*Entry` | An immutable **row record** inside a recipe dataset (dataclass) | `LibriSpeechExample`, `ManifestEntry` (pick `*Example` for new recipes; `ManifestEntry` is the outlier) |
 | `*Callback` | `lightning.Callback` subclass | `AverageCheckpointsCallback`, `EMACallback` |
 | `*Spec` / `*Step` / `*State` | Declarative config object / one unit of work / mutable runtime state (all in `optimization_spec.py`) | `OptimizerSpec`, `SchedulerSpec`, `OptimizationStep`, `OptimizerRuntimeState` |
 | `*Config` | A typed view over a config block | `DatasetConfig` |
@@ -317,8 +317,8 @@ are bare adjectives or verbs: `train` ("is this the training split"), `resolve`,
 | `*Preprocessor` | espnet2 `AbsPreprocessor` subclass in a recipe | `MiniAn4TokenizeSpeedPerturbPreprocessor` |
 | `*Progress` | Progress reporter | `DownloadProgress` |
 
-Recipe class names are `<Corpus><Kind>`: `MiniAn4Builder`, `LibriSpeech100Dataset`,
-`AishellExample`; the corpus part is CamelCased from the recipe directory name and kept identical
+Recipe class names are `<Corpus><Kind>`: `MiniAn4Builder`, `LibriSpeech100Dataset`;
+the corpus part is CamelCased from the recipe directory name and kept identical
 across `Builder`/`Dataset`/`Example`. The recipe's `dataset/__init__.py` then re-exports them under
 the fixed names `Dataset` and `DatasetBuilder`.
 
@@ -422,27 +422,56 @@ uv pip install -e ".[asr]"    # add extras as needed, e.g. also "[tts]" or "[enh
 
 **Before opening a PR, run locally** (mirrors `ci/test_python_espnet3.sh`, see `ci/AGENT.md`):
 
-First verify that the active environment provides `black`, `isort`, `pycodestyle`, `flake8`, and
-`flake8-docstrings`. Install any missing package before running the checks, for example:
+First verify that the active environment provides `black`, `isort`, `pycodestyle`, `flake8`,
+`flake8-docstrings`, and `hacking`. CI installs `hacking`, which adds checks such as H403/H405 on
+multi-line docstrings, so a local run without it can pass while CI fails. Install any missing
+package before running the checks, for example:
 
 ```bash
-python -m pip install black isort pycodestyle flake8 flake8-docstrings
+python -m pip install black isort pycodestyle flake8 flake8-docstrings "hacking>=2.0.0"
 ```
 
 Run the following checks before every push. The docstring check is particularly important: new code
-often fails CI on `flake8-docstrings` even when formatting and ordinary lint checks pass.
+often fails CI on `flake8-docstrings` or `hacking` even when formatting and ordinary lint checks pass.
 
 ```bash
 black espnet3/ test/espnet3/ ci/
 isort espnet3/ test/espnet3/ ci/
 pycodestyle espnet3/ test/espnet3/ ci/
 bash ci/test_flake8.sh espnet3
-pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q test/espnet3/systems/asr/
+pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q test/espnet3/systems/esp2_asr/
 ```
+
+**When to push:** Do not push right after each commit. Every push to a PR branch reruns the full
+GitHub CI, so pushing commit by commit wastes CI time. This applies however many agents work on
+the change. Batch the work instead:
+
+1. Finish a coherent set of changes locally, committing as you go.
+2. Run the pytest scope that covers the changed code. Skip slow suites that the change does not
+   touch, and say which ones you skipped.
+3. Run every lint check above (black, isort, pycodestyle, flake8 via `ci/test_flake8.sh`) and fix
+   all findings.
+4. Review the change when needed, then push once.
 
 **PR expectations:**
 
 - Keep PRs small: roughly 20 changed files / 2000 changed lines as a soft ceiling.
+- Never write one-line (flow-style) YAML mappings such as `inputs: {ref: dataset:text, hyp: text}`.
+  Use block style, one key per line, in configs, docstrings and docs. See `egs3/AGENT.md`.
+- Keep commit messages and PR/review replies concise enough to read in under three minutes. State
+  the main point first, include only essential context, and link to details instead of repeating them.
+- Commit message format: a short subject line (aim for six words or fewer), then a body that is
+  only a bullet list of what the commit did. Each bullet is one short fact that fits on one line
+  in a Git GUI (aim for under about 70 characters). Do not write prose, rationale paragraphs, or
+  wrapped multi-line bullets. Split a long bullet into two bullets instead.
+
+  ```text
+  Move check_declaration to contract package
+
+  - move check_declaration to components/contract/check.py
+  - import it from api/inference/base.py
+  - add tests for duplicate and empty field tuples
+  ```
 - Before pushing a change under `egs3/`, follow the recipe portability review in
   [`egs3/AGENT.md`](egs3/AGENT.md): report hard-coded paths, credentials, and
   host-specific parallel settings to the user, and never push credentials.
@@ -467,7 +496,7 @@ pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q tes
 2. **Implement it as a method on the relevant `System` subclass**, named with a short verb-style
    `snake_case` name (`prepare_labels`, `export_onnx`, ...). Shared logic goes in
    `espnet3/systems/<family>/system.py` (or a free function it calls, per section 3 above);
-   recipe-only logic goes in `egs3/<recipe>/<task>/src/`. Keep the method itself thin -- move any
+   recipe-only logic goes in `egs3/<corpus_name>/<system_name>/src/`. Keep the method itself thin -- move any
    nontrivial logic into its own module.
 3. **Register it in `run.py`.** Add the stage name to the canonical `ALL_STAGES` list (or
    `DEFAULT_STAGES` if it should run by default). **Stage execution order always follows this list's
@@ -488,3 +517,71 @@ pytest -q test/espnet3/                 # or a smaller scope, e.g. pytest -q tes
    script following its pattern -- see `ci/AGENT.md`).
 8. **Update docs**: the recipe's `README.md` if the stage is recipe-specific, and the matching package
    doc under `.agent/` (section 1) if it changes what a shared package owns.
+
+---
+
+## 6. QC
+
+What a review agent checks before accepting a change, beyond the lint and PR rules in section 4:
+
+- A skipped test counts as a failure. Name and classify any known environment-specific failure
+  explicitly (e.g. missing CUDA, a missing system tool) rather than leaving it unexplained.
+- A regression test added for a bug fix must fail by behavior on the tree before the fix -- a wrong
+  value, a missing raise, an assertion failure -- not by `ImportError` or a collection error.
+- Every public function, class, or method added or changed has an `Examples:` section in its
+  docstring (section 2 above).
+- Lint is clean: `black`, `isort`, the `pycodestyle` stage of `ci/test_python_espnet3.sh`, and
+  `flake8` with `hacking` and `flake8-docstrings` installed, run with `-j 1`. All exit 0.
+- No YAML flow-style mappings in added lines, including inside docstrings and error messages --
+  block style only (section 4 above).
+- Commit messages: a short subject line (about six words), a body of short bullets, every line
+  under 70 characters (section 4 above).
+- Outward-facing text -- commit messages, docstrings, code comments, PR descriptions -- is English
+  and neutral, with no internal team labels or role names.
+- No compatibility shims, aliases, or dual code paths kept around when a spec changes; update the
+  call sites and the tests to the new form instead of keeping the old one reachable.
+- No move shims: after code moves, a file left at the old path that only re-exports it (e.g. a
+  docstring saying "Moved to ...; kept for imports.") fails QC. Delete it and point every user
+  (`espnet3/`, `test/`, `egs3/`, doc examples) at the new module. A package `__init__.py` that
+  exposes what users call (e.g. `load`, `Field`) is fine.
+- PR descriptions are short: about 150 words. Keep the template's four sections and the closing
+  Generated line; write only what changed, why, and what to review. No history, long lists, or
+  repetition. A description well over that length fails QC.
+- A test never forces a change to the library surface for its own convenience: no test-only kind,
+  no escape hatch added only so a test can reach an internal branch.
+- `pytest` runs only on the tests related to the change, not the whole `test/espnet3/` suite, and
+  one run at a time rather than overlapping runs.
+- No relative imports (`from .` / `from ..`) in any added or changed line; use absolute imports such
+  as `from espnet3.components.data.base_dataset import BaseDataset`. Check with:
+
+  ```bash
+  git diff <base>...HEAD | grep -nE '^\+[[:space:]]*from \.'
+  ```
+
+  Zero matches is required.
+- Claimed commits, file changes, and test output actually exist and match what the change reports --
+  verify against evidence, not the report alone.
+- The change's scope matches what was asked; note anything missing or anything done beyond scope.
+- No dead code in the change: a function, method, class, or module constant added or changed that
+  nothing calls, that only tests call, or a value that is written (e.g. a JSON/YAML key) but never
+  read, fails QC. A function added to the library only so a test can reach it also fails. Anything
+  kept on purpose as public API (e.g. listed in `__all__`) needs a stated reason. Checked statically
+  by counting references (AST); a hydra `_target_` path or a `getattr(obj, "name")` string counts as
+  a reference too.
+
+## 7. Who may change these files
+
+`.agent/` is shared guidance, not personal notes. Edit the file that matches the code you are changing, in the same PR, and keep to what every contributor needs to follow.
+
+| File | Who may change it | What belongs in it |
+|---|---|---|
+| `.agent/AGENT.md` (this index) | espnet3 maintainers (`@sw005320`, `@Masao-Someki`) | Conventions that apply to all of `espnet3/`, `egs3/`, and `ci/`, and the index of the other files |
+| `.agent/ci/AGENT.md` | espnet3 maintainers | What each CI leg runs and how to run it locally |
+| `.agent/egs3/AGENT.md` | Recipe authors, for recipe layout, the checklist, and recipe-specific cautions; maintainers for everything else | Recipe layout and the cautions that help the next recipe author |
+| `.agent/espnet3/AGENT.md` | espnet3 maintainers | The package map only; details belong in the package file below |
+| `.agent/espnet3/<package>/AGENT.md` (`cli`, `components`, `parallel`, `publication`, `systems`, `utils`) | Whoever changes that package, in the PR that changes it | How the package is organised, its public entry points, and the conventions specific to it |
+
+Add: a rule every contributor to that area must follow, a name or path readers will look up, or a pitfall a review has caught more than once.
+Do not add: personal preference, the history of one PR or one bug, anything already stated in this index, or guidance that duplicates a docstring.
+
+Large changes need a review from Shinji Watanabe (`@sw005320`) before merge: more than 50 changed lines under `.agent/` in one PR, deleting or weakening an existing rule, or changing a rule in this index. Smaller edits follow the normal review of the PR they belong to.
