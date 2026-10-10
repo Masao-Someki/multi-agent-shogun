@@ -651,7 +651,8 @@ MOCK
     '
     [ "$status" -eq 0 ]
 
-    grep -q "send-keys.*inbox2" "$MOCK_LOG"
+    # Codex gets the full nudge sentence naming its own inbox (build_nudge_text)
+    grep -qF "send-keys -t test:0.0 You are test_agent. Read queue/inbox/test_agent.yaml (2 unread), process them, then do queue/tasks/test_agent.yaml if its status is assigned." "$MOCK_LOG"
     # Codex: Escape escalation is suppressed (avoid interrupting work / human typing)
     ! grep -q "send-keys.*Escape" "$MOCK_LOG"
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
@@ -1292,7 +1293,7 @@ YAML
 
     echo "$output" | grep -q "cli=codex"
     ! echo "$output" | grep -q "nudge text still visible"
-    [ "$(grep -c "send-keys -t test:0.0 inbox1" "$MOCK_LOG")" -eq 1 ]
+    [ "$(grep -cF "send-keys -t test:0.0 You are test_agent. Read queue/inbox/test_agent.yaml (1 unread), process them, then do queue/tasks/test_agent.yaml if its status is assigned." "$MOCK_LOG")" -eq 1 ]
 }
 
 # --- T-CRESET-001: send_context_reset suppresses /clear for karo ---

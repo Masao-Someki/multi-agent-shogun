@@ -977,9 +977,9 @@ send_wakeup() {
             echo "[$(date)] Wake-up sent to $AGENT_ID (${unread_count} unread, attempt $((attempt+1)), cli=codex)" >&2
             return 0
         fi
-        # 送信確認: capture-pane でプロンプトにnudgeテキストが残っていないか確認
+        # 送信確認: capture-pane -J（折り返しを結合）でプロンプトにnudgeテキストが残っていないか確認
         local pane_content
-        pane_content=$(timeout 3 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -5 || echo "")
+        pane_content=$(timeout 3 tmux capture-pane -t "$PANE_TARGET" -p -J 2>/dev/null | tail -5 || echo "")
         if echo "$pane_content" | grep -qF "$nudge"; then
             # nudgeテキストが残存 → 送信失敗 → C-u クリアしてリトライ
             echo "[$(date)] WARNING: nudge text still visible in pane, retrying (attempt $((attempt+1)))" >&2
