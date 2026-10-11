@@ -53,10 +53,16 @@ Tanya fully"): when Tanya is backed up and light work waits, ask Karo to put a
 request for more Tanya on the dashboard's action-required section, in one line:
 how many, why, and an example of the work that waited.
 
-1. Write a bounded task to `queue/tasks/tanya.yaml` with a task ID, question,
-   expected evidence, scope limits, and `status: assigned`.
-2. Notify Tanya with `scripts/inbox_write.sh tanya ... task_assigned gunshi`.
-3. Read `queue/reports/tanya_report.yaml` after Tanya notifies Gunshi.
+The vllm-workers formation runs two Tanya, `tanya` and `tanya2`, each with its
+own pane, inbox, task file and report file; the Claude formation has one. Check
+`tmux list-panes -t multiagent -F '#{@agent_id}'`, give each Tanya its own task
+id and files, and split light research between them.
+
+1. Write a bounded task to `queue/tasks/<tanya id>.yaml` with a task ID,
+   question, expected evidence, scope limits, and `status: assigned`.
+2. Notify that Tanya with `scripts/inbox_write.sh <tanya id> ... task_assigned gunshi`
+   (English; start with "You are <tanya id>. Your own inbox is queue/inbox/<tanya id>.yaml.").
+3. Read `queue/reports/<tanya id>_report.yaml` after that Tanya notifies Gunshi.
 4. Do not relay a raw Tanya result as a design conclusion. Integrate it into
    Gunshi's own analysis and report to Karo.
 

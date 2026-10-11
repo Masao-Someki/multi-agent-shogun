@@ -81,21 +81,6 @@ start_all_watchers() {
     done < <(watcher_specs)
 }
 
-start_stall_nudger_if_missing() {
-    local log_file="logs/stall_nudger.log"
-    local lockfile="/tmp/shogun_watcher_start_stall_nudger.lock"
-
-    (
-        flock -n 9 || return 0
-        if pgrep -f "scripts/stall_nudger.sh" >/dev/null 2>&1; then
-            return 0
-        fi
-
-        nohup bash scripts/stall_nudger.sh >> "$log_file" 2>&1 &
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] stall_nudger started PID=$!" >&2
-    ) 9>"$lockfile"
-}
-
 if [ "${1:-}" = "--print-watchers" ]; then
     watcher_specs
     exit 0
@@ -103,6 +88,5 @@ fi
 
 while true; do
     start_all_watchers
-    start_stall_nudger_if_missing
     sleep 5
 done

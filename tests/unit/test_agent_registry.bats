@@ -159,3 +159,47 @@ join_lines() {
     [[ "$output" == *$'gunshi\tmultiagent:agents.3\tlogs/inbox_watcher_gunshi.log'* ]]
     [[ "$output" == *$'gunshi2\tmultiagent:agents.4\tlogs/inbox_watcher_gunshi2.log'* ]]
 }
+
+@test "agent_registry: a second tanya (vllm formation) sorts after tanya and before gunshi" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    gunshi: {type: claude}
+    tanya2: {type: codex}
+    metsuke: {type: claude}
+    tanya: {type: codex}
+    karo: {type: claude}
+    ashigaru5: {type: codex}
+    ashigaru1: {type: codex}
+    ashigaru4: {type: codex}
+    ashigaru2: {type: codex}
+    ashigaru3: {type: codex}'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 metsuke tanya tanya2 gunshi" ]
+
+    [ "$(agent_registry_multiagent_pane_for_agent tanya 0)" = "multiagent:agents.7" ]
+    [ "$(agent_registry_multiagent_pane_for_agent tanya2 0)" = "multiagent:agents.8" ]
+    [ "$(agent_registry_multiagent_pane_for_agent gunshi 0)" = "multiagent:agents.9" ]
+}
+
+@test "agent_registry: the Claude formation keeps a single tanya and seven panes" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    gunshi: {type: claude}
+    metsuke: {type: claude}
+    tanya: {type: claude}
+    karo: {type: claude}
+    ashigaru1: {type: claude}
+    ashigaru2: {type: claude}
+    ashigaru3: {type: claude}'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
+    [ "$(agent_registry_multiagent_pane_for_agent gunshi 0)" = "multiagent:agents.6" ]
+}

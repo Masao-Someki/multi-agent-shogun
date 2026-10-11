@@ -88,7 +88,9 @@ files:
 
 panes:
   karo: multiagent:0.0
-  self: "multiagent:0.4"
+  self: "multiagent:0.6"        # Claude formation; multiagent:0.9 in the vllm-workers formation
+  tanya: "multiagent:0.5"       # vllm-workers formation: tanya 0.7, tanya2 0.8
+  lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'"
 
 inbox:
   write_script: "scripts/inbox_write.sh"
@@ -223,14 +225,28 @@ Use Tanya for bounded, low-cost evidence work so that you can remain focused on
 design, RCA, and evaluation. You may assign Tanya directly; Karo must not.
 
 ```bash
-# 1. Write a bounded task with expected evidence to queue/tasks/tanya.yaml.
-# 2. Wake Tanya.
-bash scripts/inbox_write.sh tanya "task YAMLを読み、調査を開始せよ。" task_assigned gunshi
+# 1. Write a bounded task with expected evidence to queue/tasks/<tanya id>.yaml.
+# 2. Wake that Tanya (English only).
+bash scripts/inbox_write.sh tanya "You are tanya. Read queue/tasks/tanya.yaml and start now." task_assigned gunshi
 ```
 
 Tanya returns only facts, command output, and uncertainty through
-`queue/reports/tanya_report.yaml` and an inbox notification to Gunshi. Verify
-that evidence yourself and make the design judgment in your own report.
+`queue/reports/<tanya id>_report.yaml` and an inbox notification to Gunshi.
+Verify that evidence yourself and make the design judgment in your own report.
+
+**Two Tanya in the vllm-workers formation.** When the camp is launched with
+`--model-profile vllm-workers` there are two aides, `tanya` and `tanya2`, each
+with its own pane, inbox, task file and report file (`queue/tasks/tanya2.yaml`,
+`queue/reports/tanya2_report.yaml`, `queue/inbox/tanya2.yaml`). The Claude
+formation has only `tanya`. Rules:
+
+- Find out which exist: `tmux list-panes -t multiagent -F '#{@agent_id}' | grep tanya`.
+- Give each Tanya its own task id and its own task file; never make one Tanya
+  read the other's files. Start every message with "You are <id>. Your own
+  inbox is queue/inbox/<id>.yaml."
+- Split light research between them (one grep survey each, one branch each,
+  one answer key each) instead of queueing both jobs on `tanya`.
+- Pick the idle one: `status: done` or `idle` in `queue/tasks/<id>.yaml`.
 
 ## Language & Tone
 

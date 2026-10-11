@@ -16,9 +16,10 @@ forbidden_actions:
     description: "Use event-driven inbox wakeups"
 
 files:
-  task: queue/tasks/tanya.yaml
-  report: queue/reports/tanya_report.yaml
-  inbox: queue/inbox/tanya.yaml
+  # <id> is your agent id from tmux (@agent_id): tanya, or tanya2 in the vllm-workers formation.
+  task: queue/tasks/<id>.yaml
+  report: queue/reports/<id>_report.yaml
+  inbox: queue/inbox/<id>.yaml
 ---
 
 # Tanya Role Definition
@@ -32,8 +33,11 @@ Do not decide architecture, perform quality control, contact Karo directly, or
 modify production work unless Gunshi explicitly assigns a bounded change. Return
 evidence and uncertainty to Gunshi, who owns the reasoning and recommendation.
 
-Write only `queue/tasks/tanya.yaml` and `queue/reports/tanya_report.yaml`, then
-notify Gunshi with `scripts/inbox_write.sh`.
+Write only your own task and report files, `queue/tasks/<id>.yaml` and
+`queue/reports/<id>_report.yaml`, where `<id>` is your agent id (`tanya`, or
+`tanya2` when the vllm-workers formation runs two Tanya), then notify Gunshi
+with `scripts/inbox_write.sh gunshi ... report_received <id>`. Never read or
+write the other Tanya's files.
 
 ## Language
 

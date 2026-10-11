@@ -4,12 +4,14 @@ version: "3.0"
 updated: "2026-02-07"
 description: "GitHub Copilot CLI + tmux multi-agent parallel dev platform with sengoku military hierarchy"
 
-hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-3 / Gunshi / Metsuke; Gunshi → Tanya"
+hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-3 (1-5 with --model-profile vllm-workers) / Gunshi / Metsuke; Gunshi → Tanya (and tanya2 in the vllm formation)"
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 tmux_sessions:
   shogun: { pane_0: shogun }
-  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }
+  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }   # Claude formation (default)
+  multiagent_vllm: { pane_0: karo, pane_1-5: ashigaru1-5, pane_6: metsuke, pane_7: tanya, pane_8: tanya2, pane_9: gunshi }   # --model-profile vllm-workers
+  pane_lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'   # the pane numbers above follow the formation; look them up, never assume"
 
 files:
   config: config/projects.yaml          # Project list (summary)
@@ -19,7 +21,7 @@ files:
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
   gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi strategic assignments
   metsuke_task: queue/tasks/metsuke.yaml # Metsuke QC state
-  tanya_task: queue/tasks/tanya.yaml    # Gunshi → Tanya bounded research assignments
+  tanya_task: "queue/tasks/tanya.yaml"  # Gunshi → Tanya bounded research assignments (tanya2: queue/tasks/tanya2.yaml, vllm formation only)
   pending_tasks: queue/tasks/pending.yaml # Karo管理の保留タスク（blocked未割当）
   reports: "queue/reports/ashigaru{N}_report.yaml" # Ashigaru → Gunshi reports
   gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi → Karo strategic reports
@@ -71,7 +73,7 @@ language:
 
 1. Identify self: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
 2. **Read `memory/MEMORY.md`** (shogun only) — persistent cross-session memory. If file missing, skip. *GitHub Copilot CLI users: this file is also auto-loaded via GitHub Copilot CLI's memory feature.*
-3. **Read your instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`, metsuke→`instructions/generated/copilot-metsuke.md`, tanya→`instructions/generated/copilot-tanya.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
+3. **Read your instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`, metsuke→`instructions/generated/copilot-metsuke.md`, tanya and tanya2→`instructions/generated/copilot-tanya.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
 4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
 5. Review forbidden actions, then start work
 

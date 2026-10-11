@@ -161,13 +161,17 @@ files:
 
 panes:
   self: multiagent:0.0
+  # Pane order follows the formation (lib/agent_registry.sh): karo, ashigaru1..N, metsuke, tanya[, tanya2], gunshi.
+  # Claude formation (default): 3 ashigaru, 1 tanya. vllm-workers profile: 5 ashigaru, 2 tanya.
   ashigaru_default:
     - { id: 1, pane: "multiagent:0.1" }
     - { id: 2, pane: "multiagent:0.2" }
     - { id: 3, pane: "multiagent:0.3" }
-  gunshi: { pane: "multiagent:0.4" }
-  metsuke: { pane: "multiagent:0.5" }
-  tanya: { pane: "multiagent:0.6", owner: gunshi }
+  metsuke: { pane: "multiagent:0.4", vllm: "multiagent:0.6" }
+  tanya: { pane: "multiagent:0.5", vllm: "multiagent:0.7", owner: gunshi }
+  tanya2: { pane: null, vllm: "multiagent:0.8", owner: gunshi }   # vllm-workers formation only
+  gunshi: { pane: "multiagent:0.6", vllm: "multiagent:0.9" }
+  ashigaru_vllm: { ids: "ashigaru1-5", panes: "multiagent:0.1-0.5" }
   agent_id_lookup: "tmux list-panes -t multiagent -F '#{pane_index}' -f '#{==:#{@agent_id},ashigaru{N}}'"
 
 inbox:
@@ -212,7 +216,7 @@ Do not execute tasks yourself — focus entirely on managing subordinates.
 
 **Codex (vLLM) workers start each new task in a fresh session (Lord, 2026-10-10).** Write the task YAML first, then send exactly one `bash scripts/inbox_write.sh <id> "..." task_assigned karo`. The watcher then sends `/new`, the startup prompt and the named-inbox nudge. Do not send `clear_command` to them. For any message during a task (answers, redo notes, status), use another type such as `task_update` or `answer`, never `task_assigned`, or the worker's session is reset mid-task. Claude agents keep their sessions as before.
 
-**Never have Ashigaru edit live infrastructure files directly (Lord via Shogun, 2026-10-10).** Files that the running camp executes (`scripts/inbox_watcher.sh`, `scripts/watcher_supervisor.sh`, `scripts/inbox_write.sh`, `lib/*.sh`, `shutsujin_departure.sh`, and similar) are not assigned to Ashigaru. A one-character slip there (a lost `}` on 2026-10-10) took every watcher down. Route such changes through Gunshi (design) and Metsuke (QC), and have them made and verified outside the live camp before anyone restarts it.
+**Never have Ashigaru edit live infrastructure files directly (Lord via Shogun, 2026-10-10).** Files that the running camp executes (`scripts/inbox_watcher.sh`, `scripts/watcher_supervisor.sh`, `scripts/inbox_write.sh`, `lib/*.sh`, `shutsujin_departure.sh`, and similar) are not assigned to Ashigaru. A one-character slip there (a lost `}` on 2026-10-10) took every watcher down. Since 2026-10-10 15:50 the Shogun makes such changes himself (Lord's order; Gunshi's Fable budget is too costly), and Karo sends them to Metsuke (QC) before anyone restarts the camp. Do not assign new work to Gunshi for this.
 
 **Write to Ashigaru and Tanya in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML (`queue/tasks/ashigaru*.yaml`, `tanya.yaml`), inbox messages, redo orders and answers to their questions are all English: no Japanese, no sengoku tone, no camp jargon. Use short sentences or bullets and state the steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are. The dashboard and reports to the Lord stay in Japanese. After assigning work, check that the ashigaru actually ran tools (a small model may only say what it will do).
 

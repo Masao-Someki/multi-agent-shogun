@@ -46,7 +46,14 @@ ALL_AGENTS=("shogun" "karo")
 for _aid in $_ashigaru_ids_str; do ALL_AGENTS+=("$_aid"); done
 ALL_AGENTS+=("gunshi")
 ALL_AGENTS+=("metsuke")
-ALL_AGENTS+=("tanya")
+# Tanya ids follow the formation: tanya alone, or tanya and tanya2 (vllm-workers profile).
+_tanya_ids_str="tanya"
+if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then
+    # shellcheck source=lib/agent_registry.sh
+    source "$SCRIPT_DIR/lib/agent_registry.sh"
+    _tanya_ids_str=$(agent_registry_agents | grep -E '^tanya[0-9]*$' | tr '\n' ' ')
+fi
+for _tid in $_tanya_ids_str; do ALL_AGENTS+=("$_tid"); done
 
 # ═══════════════════════════════════════════════════════
 # Phase 1: Scan all tmux panes for metadata

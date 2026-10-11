@@ -52,13 +52,14 @@ stall_nudger_pane_idle() {
 }
 
 # stall_nudger_watched_agents
-# Every ashigaru and tanya from the formation (skip karo/gunshi/metsuke/shogun).
+# Every ashigaru and tanya (tanya2 in the vllm formation) from the formation
+# (skip karo/gunshi/metsuke/shogun).
 stall_nudger_watched_agents() {
     local agent
     while IFS= read -r agent; do
         [ -z "$agent" ] && continue
         case "$agent" in
-            ashigaru[0-9]*|tanya) printf '%s\n' "$agent" ;;
+            ashigaru[0-9]*|tanya|tanya[0-9]*) printf '%s\n' "$agent" ;;
         esac
     done < <(agent_registry_agents)
 }

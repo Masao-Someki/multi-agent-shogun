@@ -34,8 +34,14 @@ mkdir -p "$LOG_DIR" || true
 echo "[$(date -Iseconds)] $AGENT_ID session_start_hook fired" \
     >> "$LOG_DIR/session_start_hook.log" || true
 
+# Role file: tanya2 (second Tanya in the vllm formation) reads instructions/tanya.md.
+ROLE_FILE="$AGENT_ID"
 case "$AGENT_ID" in
-    shogun|karo|gunshi|metsuke|tanya)
+    tanya[0-9]*) ROLE_FILE="tanya" ;;
+esac
+
+case "$AGENT_ID" in
+    shogun|karo|gunshi|metsuke|tanya|tanya[0-9]*)
         # command-layer agents: full Session Start (Step 1-5)
         cat <<EOF
 **CRITICAL: Session Start 手順を最優先で実行せよ**
@@ -46,7 +52,7 @@ case "$AGENT_ID" in
 
 1. \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\` で自己識別を再確認
 2. (shogun のみ) \`memory/MEMORY.md\` を Read — ルール・嗜好・教訓を復元 (file-based memory。Memory MCP は 2026-07-01 廃止済み、呼ぶな)
-3. \`instructions/${AGENT_ID}.md\` を最後まで必読 — persona・戦国口調・forbidden_actions 再確立 **(絶対省略禁止)**
+3. \`instructions/${ROLE_FILE}.md\` を最後まで必読 — persona・戦国口調・forbidden_actions 再確立 **(絶対省略禁止)**
 4. \`queue/\` 配下 (tasks/, inbox/, reports/) から state 再構築
 
 **Step 1-3 完了まで inbox 処理・ユーザ応答は禁止**。inbox{N} nudge が先に届いても無視し、persona 確立を優先せよ。
