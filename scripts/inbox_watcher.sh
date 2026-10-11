@@ -725,11 +725,26 @@ send_startup_prompt() {
         timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-        sleep 0.3
+        sleep 1
     fi
     timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
-    sleep 0.3
+    # A fresh Codex session treats an Enter right after a long typed burst as
+    # a newline in the draft, so wait longer and re-press Enter while the tail
+    # of the prompt is still sitting in the input box.
+    sleep 1
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    local tail_words="${startup_prompt: -12}" retry
+    for retry in 1 2 3; do
+        sleep 2
+        if agent_is_busy; then
+            break
+        fi
+        if ! timeout 5 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -n 6 | tr -d '\n' | grep -qF -- "$tail_words"; then
+            break
+        fi
+        echo "[$(date)] [STARTUP] Startup prompt still in the input box for $AGENT_ID — pressing Enter again (${retry})" >&2
+        timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    done
     STARTUP_PROMPT_SENT=1
 }
 
