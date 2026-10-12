@@ -759,8 +759,8 @@ send_context_reset() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
-    # Session pool: Claude keeps its pooled session; codex (vLLM workers) starts
-    # every new task from a fresh conversation.  Decided in lib/session_pool.sh.
+    # Session pool: Claude and codex (vLLM workers) keep their pooled session
+    # across tasks.  Decided in lib/session_pool.sh.
     if type session_pool_preserves_context &>/dev/null && session_pool_preserves_context "$effective_cli"; then
         echo "[$(date)] [SESSION-POOL] Keeping context for $AGENT_ID ($effective_cli); task YAML and inbox are the handoff." >&2
         return 0

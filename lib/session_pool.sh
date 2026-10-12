@@ -145,17 +145,17 @@ build_pooled_cli_command() {
 }
 
 # Decide per CLI whether a pooled session keeps its context across tasks.
-# Claude sessions are paid and prompt-cached, so a new assignment is handed
-# over by task YAML and an inbox nudge without a reset.  Codex here means the
-# local vLLM workers: tokens are free and small models drift over long
-# sessions, so every new task starts from a fresh /new conversation.  CLIs
-# outside the pool never preserved context.
+# Claude and codex (the local vLLM workers) keep their session: a new
+# assignment is handed over by task YAML and a short inbox nudge.  Codex used
+# to get /new plus a typed startup prompt per task, but a freshly reset Codex
+# drops the head of that prompt and its Enter, which left workers stuck with
+# an unsent prompt.  CLIs outside the pool never preserved context.
 # Usage: session_pool_preserves_context [cli_type]   (default: $CLI_TYPE)
 # Returns 0 when context is kept, 1 when a reset is allowed.
 session_pool_preserves_context() {
     local cli_type="${1:-${CLI_TYPE:-}}"
     case "$cli_type" in
-        claude) return 0 ;;
+        claude|codex) return 0 ;;
         *) return 1 ;;
     esac
 }

@@ -8,11 +8,11 @@
 # sleep are shell functions, so no camp file, inbox or pane is touched.
 #
 # Cases:
-#   T-POOL-001..005: helper — claude keeps, codex/opencode reset, default from CLI_TYPE
-#   T-POOL-010: ashigaru1 on codex → /new then the startup prompt
+#   T-POOL-001..005: helper — claude/codex keep, opencode resets, default from CLI_TYPE
+#   T-POOL-010: ashigaru1 on codex → nothing sent, session kept
 #   T-POOL-011: ashigaru1 on claude → nothing sent, session kept
-#   T-POOL-012: tanya on codex → /new (tanya is a worker, not command layer)
-#   T-POOL-013: karo on codex → nothing sent (command-layer guard)
+#   T-POOL-012: tanya on codex → nothing sent, session kept
+#   T-POOL-013: karo on codex → nothing sent
 #   T-POOL-014: metsuke on claude → nothing sent, session kept
 
 setup() {
@@ -69,9 +69,9 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "T-POOL-002: helper — codex does not keep context" {
+@test "T-POOL-002: helper — codex keeps context" {
     run bash -c 'CLI_ADAPTER_PROJECT_ROOT="$TEST_TMPDIR"; source "$POOL_SCRIPT"; session_pool_preserves_context codex'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 0 ]
 }
 
 @test "T-POOL-003: helper — opencode (outside the pool) does not keep context" {
@@ -86,24 +86,19 @@ teardown() {
 
 @test "T-POOL-005: helper — no argument falls back to CLI_TYPE=codex" {
     run bash -c 'CLI_ADAPTER_PROJECT_ROOT="$TEST_TMPDIR"; CLI_TYPE=codex; source "$POOL_SCRIPT"; session_pool_preserves_context'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 0 ]
 }
 
 # ─── Part 2: send_context_reset through the real watcher ───
 
-@test "T-POOL-010: ashigaru1 on codex — /new is sent, then the startup prompt" {
+@test "T-POOL-010: ashigaru1 on codex — nothing is sent, session kept" {
     export HARNESS_AGENT_ID="ashigaru1"
     export HARNESS_CLI_TYPE="codex"
     export MOCK_PANE_CLI="codex"
     run bash -c 'source "$TEST_HARNESS"; send_context_reset'
     [ "$status" -eq 0 ]
-    grep -q "send-keys -t test:0.0 /new" "$MOCK_LOG"
-    grep -q "Session Start" "$MOCK_LOG"
-    # /new comes before the startup prompt
-    new_line=$(grep -n "send-keys -t test:0.0 /new" "$MOCK_LOG" | head -1 | cut -d: -f1)
-    prompt_line=$(grep -n "Session Start" "$MOCK_LOG" | head -1 | cut -d: -f1)
-    [ "$new_line" -lt "$prompt_line" ]
-    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+    echo "$output" | grep -q "SESSION-POOL"
+    ! grep -q "send-keys" "$MOCK_LOG"
 }
 
 @test "T-POOL-011: ashigaru1 on claude — nothing is sent, session kept" {
@@ -116,22 +111,22 @@ teardown() {
     ! grep -q "send-keys" "$MOCK_LOG"
 }
 
-@test "T-POOL-012: tanya on codex — /new is sent (worker, not command layer)" {
+@test "T-POOL-012: tanya on codex — nothing is sent, session kept" {
     export HARNESS_AGENT_ID="tanya"
     export HARNESS_CLI_TYPE="codex"
     export MOCK_PANE_CLI="codex"
     run bash -c 'source "$TEST_HARNESS"; send_context_reset'
     [ "$status" -eq 0 ]
-    grep -q "send-keys -t test:0.0 /new" "$MOCK_LOG"
+    echo "$output" | grep -q "SESSION-POOL"
+    ! grep -q "send-keys" "$MOCK_LOG"
 }
 
-@test "T-POOL-013: karo on codex — nothing is sent (command-layer guard)" {
+@test "T-POOL-013: karo on codex — nothing is sent" {
     export HARNESS_AGENT_ID="karo"
     export HARNESS_CLI_TYPE="codex"
     export MOCK_PANE_CLI="codex"
     run bash -c 'source "$TEST_HARNESS"; send_context_reset'
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "command-layer"
     ! grep -q "send-keys" "$MOCK_LOG"
 }
 
