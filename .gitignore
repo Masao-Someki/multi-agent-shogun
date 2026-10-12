@@ -133,6 +133,12 @@ scripts/seo_qc.sh
 !scripts/dashboard-viewer.py
 !scripts/mcp_health_check.sh
 !scripts/stall_nudger.sh
+!scripts/task_pool.py
+!scripts/task_pool_add.sh
+!scripts/task_pool_claim.sh
+!scripts/task_pool_mark.sh
+!scripts/task_pool_list.sh
+!scripts/plan_submit.sh
 
 
 # SayTask (sample template only, not actual data)
