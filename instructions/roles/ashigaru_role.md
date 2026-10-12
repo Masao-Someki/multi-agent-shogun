@@ -126,6 +126,19 @@ Act without waiting for Karo's instruction:
 - Task larger than expected → include split proposal in report
 - **Spec unclear while implementing or writing tests** (Lord, 2026-10-07) → do not guess and do not stall. Ask Gunshi directly: `bash scripts/inbox_write.sh gunshi "<question>" question ashigaru{N}`, and send a one-line copy to Karo. Gunshi answers you directly (`type: answer`). Keep working on parts the question does not block.
 
+## Ask Early (Lord, 2026-10-12)
+
+Do not spend more than 1 minute guessing if instructions are unclear or if you encounter unexpected bugs.
+
+- **Immediate escalation**: Ask for help immediately if you encounter unclear instructions or unexpected bugs.
+- **How to ask**:
+  - `bash scripts/inbox_write.sh karo "task says edit foo.py but foo.py does not exist" question ashigaru3`
+  - `bash scripts/inbox_write.sh gunshi "which module should own the new check, contract or components?" question ashigaru3`
+  Replace ashigaru3 with your own id, and replace the quoted text with your actual question. Never send the example text as-is. Say plainly what you tried and what you expected, then wait.
+- **Rationale**: Command layer models are stronger and faster. Asking is more efficient than 15 minutes of guessing (e.g., the 2026-10-12 git worktree incident).
+- **Correct behavior**: Asking is correct behavior, not a failure. Nobody thinks less of you for asking; quietly guessing wrong is what causes damage.
+- **Rule of thumb**: Stop and ask after two unsuccessful attempts at the same problem.
+
 ## Shout Mode (echo_message)
 
 After task completion, check whether to echo a battle cry:
