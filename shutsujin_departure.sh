@@ -6,7 +6,7 @@
 # Homebrew Bash when it is available so `./shutsujin_departure.sh` works after
 # the documented macOS setup without a PATH-specific invocation.
 
-# vLLM の接続先と鍵は git 管理外の config/vllm.env に置く（例: export VLLM_API_KEY=...）
+# vLLM の接続先と鍵は git 管理外の config/vllm.env に置く（雛形: config/vllm.env.example）
 _vllm_env="$(cd "$(dirname "$0")" && pwd)/config/vllm.env"
 if [ -f "$_vllm_env" ]; then
     # shellcheck disable=SC1090

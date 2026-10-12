@@ -99,6 +99,7 @@
 !gpu-vllm/bin/
 !gpu-vllm/bin/inotifywait
 !config/opencode-permissions.yaml
+!config/vllm.env.example
 !config/model_profiles/
 !config/model_profiles/*.yaml
 
