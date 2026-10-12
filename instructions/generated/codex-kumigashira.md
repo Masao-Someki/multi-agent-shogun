@@ -51,6 +51,7 @@ Pool tasks arrive with `plan_status: pending`, like Karo-assigned tasks. The Ash
 - Verify commands are exact.
 - No compute or file writes inside a per-chunk loop.
 - No DEBUG prints.
+- The plan is plain text in `plan: |`; edit lines in place for revised.
 - No whole-file rewrites.
 - Step order is sound.
 - The plan matches the task YAML and the cmd acceptance criteria in `queue/shogun_to_karo.yaml`.
@@ -61,7 +62,7 @@ First write the verdict into the Ashigaru's task YAML: set plan_status (approved
 plan_review (by: kumigashira, at: the date, verdict, note: what you changed, or empty). For "revised", edit
 plan: in place. Then send one message (English):
 
-- Approved or revised: `bash scripts/inbox_write.sh <ashigaru_id> "You are <ashigaru_id>. Your plan is approved. Read queue/tasks/<ashigaru_id>.yaml and run the plan step by step." plan_approved kumigashira` (write "revised" instead of "approved" when you changed the plan)
+- Approved or revised: `bash scripts/inbox_write.sh <ashigaru_id> "You are <ashigaru_id>. Your plan is approved (or revised). Run: bash scripts/task_start.sh <ashigaru_id>" plan_approved kumigashira`
 - Escalated: `bash scripts/inbox_write.sh gunshi "<task_id>: plan needs restructuring: <one line>" plan_escalation kumigashira`
 
 ## Board
@@ -224,10 +225,7 @@ Do NOT invent new status values without updating this section.
 
 ### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
 
-- `pending`: Karo assigned the task; the Ashigaru writes `plan:` next
-- `submitted`: the plan is written; the Ashigaru waits for Kumigashira
-- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step
-- `escalated`: the plan needs restructuring; Gunshi decides
+- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step (using `task_start.sh <N>`)
 - `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
 
 
