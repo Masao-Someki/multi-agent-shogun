@@ -1134,3 +1134,49 @@ YAML
     [[ "$result" != MAX_THINKING_TOKENS* ]]
     [[ "$result" == codex* ]]
 }
+
+# =============================================================================
+# wrap_agent_cli_command / build_agent_launch_command テスト
+# =============================================================================
+
+@test "wrap_agent_cli_command: cli.agent_workdir is set" {
+    cat > "${TEST_TMP}/settings_workdir.yaml" << 'YAML'
+cli:
+  agent_workdir: "/tmp/ashigaru2_workdir"
+YAML
+    load_adapter_with "${TEST_TMP}/settings_workdir.yaml"
+    result=$(wrap_agent_cli_command "ashigaru2" "ls -la")
+    [[ "$result" == cd* ]] && [[ "$result" == *"/tmp/ashigaru2_workdir"* ]] && [[ "$result" == *"ls -la"* ]]
+}
+
+@test "wrap_agent_cli_command: falls back to CLI_ADAPTER_PROJECT_ROOT" {
+    cat > "${TEST_TMP}/settings_empty_workdir.yaml" << 'YAML'
+cli:
+  agent_workdir: ""
+YAML
+    export CLI_ADAPTER_PROJECT_ROOT="/tmp/project_root"
+    load_adapter_with "${TEST_TMP}/settings_empty_workdir.yaml"
+    result=$(wrap_agent_cli_command "ashigaru2" "ls -la")
+    [[ "$result" == cd* ]] && [[ "$result" == *"/tmp/project_root"* ]] && [[ "$result" == *"ls -la"* ]]
+    unset CLI_ADAPTER_PROJECT_ROOT
+}
+
+@test "wrap_agent_cli_command: quotes workdir with spaces" {
+    cat > "${TEST_TMP}/settings_space_workdir.yaml" << 'YAML'
+cli:
+  agent_workdir: "/tmp/work dir with spaces"
+YAML
+    load_adapter_with "${TEST_TMP}/settings_space_workdir.yaml"
+    result=$(wrap_agent_cli_command "ashigaru2" "ls -la")
+    [[ "$result" == cd* ]] && [[ "$result" == *"'/tmp/work dir with spaces'"* ]] && [[ "$result" == *"ls -la"* ]]
+}
+
+@test "build_agent_launch_command: uses build_cli_command by default" {
+    cat > "${TEST_TMP}/settings_default_builder.yaml" << 'YAML'
+cli:
+  default: claude
+YAML
+    load_adapter_with "${TEST_TMP}/settings_default_builder.yaml"
+    result=$(build_agent_launch_command "ashigaru2")
+    [[ "$result" == cd* ]] && [[ "$result" == *"claude"* ]]
+}
