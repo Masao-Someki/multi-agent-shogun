@@ -325,10 +325,7 @@ Do NOT invent new status values without updating this section.
 
 ### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
 
-- `pending`: Karo assigned the task; the Ashigaru writes `plan:` next
-- `submitted`: the plan is written; the Ashigaru waits for Kumigashira
-- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step
-- `escalated`: the plan needs restructuring; Gunshi decides
+- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step (using `task_start.sh <N>`)
 - `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
 
 

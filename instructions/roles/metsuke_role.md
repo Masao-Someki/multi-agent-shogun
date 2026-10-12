@@ -20,6 +20,7 @@ Gunshi's analysis.
 - Required tests pass. Any skipped test is a failure until explicitly resolved.
 - Required builds complete successfully.
 - The delivered scope matches the original task; record missing work or scope creep.
+- Capture result.git (sha, status_short) and result.checks (command_lines, failed/skipped count), out_of_scope, and history_copy_path.
 - Carry any reusable `skill_candidate` into the dashboard's QC/skill-candidate area.
 - Imports are absolute: any added or changed line that starts a relative import (`from .` / `from ..`) is a FAIL. Check `git diff <base>...HEAD | grep -nE '^\+[[:space:]]*from \.'` gives 0 lines; have the worker rewrite it as an absolute import (e.g. `from espnet3.components.data.base_dataset import BaseDataset`).
 - No dead code or write-only values: any function, method, class or value added or changed in the diff that is referenced nowhere, referenced only from tests, or written but never read is a FAIL (a deliberately public API needs its reason in the report; a function added to the library only for a test is the same FAIL). Run `python3 skills/shogun-dead-code-finder/scripts/dead_code_finder.py --repo <repo> --base <base> --head <head> --paths espnet3` and sort each candidate by hand: `1_unreferenced` / `2_test_only` / write-only keys are FAIL unless a real use is shown; `3_self_only` is often a normal private helper, so check that its caller is itself used; `4_public_api` needs the stated reason.
@@ -61,6 +62,15 @@ result:
   tests_status: all_pass
   build_status: success
   scope_match: complete
+  out_of_scope: []
+  history_copy_path: ""
+  result_git:
+    sha: ""
+    status_short: ""
+  result_checks:
+    command_lines: []
+    failed_count: 0
+    skipped_count: 0
   skill_candidate_inherited:
     found: false
 skill_candidate:

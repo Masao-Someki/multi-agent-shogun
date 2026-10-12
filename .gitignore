@@ -78,6 +78,7 @@
 
 # Setup and deployment scripts
 !shutsujin_departure.sh
+!stop_shogun.sh
 !first_setup.sh
 !setup.sh
 !install.bat
@@ -94,6 +95,9 @@
 !gpu-vllm/pixi.toml
 !gpu-vllm/pixi.lock
 !gpu-vllm/start-vllm.sh
+!gpu-vllm/start-shogun.sh
+!gpu-vllm/bin/
+!gpu-vllm/bin/inotifywait
 !config/opencode-permissions.yaml
 !config/model_profiles/
 !config/model_profiles/*.yaml
@@ -119,6 +123,7 @@
 !scripts/inbox_write.sh
 !scripts/inbox_watcher.sh
 !scripts/watcher_supervisor.sh
+!scripts/stall_nudger.sh
 !scripts/ntfy.sh
 !scripts/ntfy_listener.sh
 !scripts/build_instructions.sh
@@ -133,7 +138,6 @@ scripts/seo_qc.sh
 !scripts/switch_cli.sh
 !scripts/dashboard-viewer.py
 !scripts/mcp_health_check.sh
-!scripts/stall_nudger.sh
 !scripts/board_update.sh
 !scripts/board_render.py
 !scripts/board_render.sh
@@ -143,6 +147,11 @@ scripts/seo_qc.sh
 !scripts/task_pool_mark.sh
 !scripts/task_pool_list.sh
 !scripts/plan_submit.sh
+!scripts/task_start.py
+!scripts/task_start.sh
+!scripts/task_finish.py
+!scripts/task_finish.sh
+!scripts/pool_dispatcher.sh
 !scripts/pane_state_painter.sh
 
 

@@ -5,6 +5,15 @@
 # macOS ships Bash 3.2, while this script uses Bash 4+ features.  Re-exec the
 # Homebrew Bash when it is available so `./shutsujin_departure.sh` works after
 # the documented macOS setup without a PATH-specific invocation.
+
+# vLLM の接続先と鍵は git 管理外の config/vllm.env に置く（例: export VLLM_API_KEY=...）
+_vllm_env="$(cd "$(dirname "$0")" && pwd)/config/vllm.env"
+if [ -f "$_vllm_env" ]; then
+    # shellcheck disable=SC1090
+    . "$_vllm_env"
+fi
+unset _vllm_env
+
 if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] && [ -x /opt/homebrew/opt/bash/bin/bash ]; then
     exec /opt/homebrew/opt/bash/bin/bash "$0" "$@"
 fi

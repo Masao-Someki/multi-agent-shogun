@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Small inotifywait-compatible adapter for the Shogun inbox watchers."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+from inotify_simple import INotify, flags
+
+
+EVENT_NAMES = {
+    "access": flags.ACCESS,
+    "attrib": flags.ATTRIB,
+    "close_write": flags.CLOSE_WRITE,
+    "create": flags.CREATE,
+    "delete": flags.DELETE,
+    "delete_self": flags.DELETE_SELF,
+    "modify": flags.MODIFY,
+    "moved_from": flags.MOVED_FROM,
+    "moved_to": flags.MOVED_TO,
+    "move_self": flags.MOVE_SELF,
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-q", "--quiet", action="store_true")
+    parser.add_argument("-t", "--timeout", type=float)
+    parser.add_argument("-e", "--event", action="append", default=[])
+    parser.add_argument("--format", default="%w%f %e")
+    parser.add_argument("-h", "--help", action="help")
+    parser.add_argument("paths", nargs="+")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    requested: set[flags] = set()
+    for group in args.event:
+        for name in group.split(","):
+            event_flag = EVENT_NAMES.get(name.strip().lower())
+            if event_flag is None:
+                print(f"inotifywait: unsupported event: {name}", file=sys.stderr)
+                return 2
+            requested.add(event_flag)
+    if not requested:
+        requested = {flags.MODIFY, flags.CLOSE_WRITE, flags.MOVED_TO}
+
+    watcher = INotify()
+    watches: dict[int, list[tuple[Path, bool]]] = {}
+    mask = flags.MOVED_TO | flags.DELETE_SELF | flags.MOVE_SELF
+    for event_flag in requested:
+        mask |= event_flag
+    mask |= flags.MOVED_TO | flags.DELETE_SELF | flags.MOVE_SELF
+
+    try:
+        for raw_path in args.paths:
+            path = Path(raw_path).resolve()
+            is_directory = path.is_dir()
+            watched_path = path if is_directory else path.parent
+            wd = watcher.add_watch(str(watched_path), mask)
+            watches.setdefault(wd, []).append((path, is_directory))
+    except OSError as exc:
+        print(f"inotifywait: {exc}", file=sys.stderr)
+        return 1
+
+    timeout_ms = None if args.timeout is None else max(0, int(args.timeout * 1000))
+    try:
+        while True:
+            events = watcher.read(timeout=timeout_ms)
+            if not events:
+                return 2
+            for event in events:
+                targets = watches.get(event.wd)
+                if targets is None:
+                    continue
+                occurred = flags.from_mask(event.mask)
+                for path, is_directory in targets:
+                    if not is_directory and event.name != path.name:
+                        continue
+                    matched = [flag.name for flag in occurred if flag in requested]
+                    # Atomic file replacement reports MOVED_TO for the inbox
+                    # filename; the watcher treats this as a change and re-arms.
+                    if not matched and not (event.mask & flags.MOVED_TO):
+                        if event.mask & (flags.DELETE_SELF | flags.MOVE_SELF):
+                            return 1
+                        continue
+                    if not args.quiet:
+                        event_text = ",".join(matched or [flags.MOVED_TO.name])
+                        output = args.format.replace("%e", event_text)
+                        output = output.replace("%w", str(path.parent) + os.sep)
+                        output = output.replace("%f", event.name or path.name)
+                        print(output, flush=True)
+                    return 0
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        watcher.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
