@@ -579,6 +579,19 @@ YAML
     [ "$result" = ".github/copilot-instructions-ashigaru.md" ]
 }
 
+
+@test "get_instruction_file: kumigashira + claude → instructions/kumigashira.md" {
+    load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    result=$(get_instruction_file "kumigashira" "claude")
+    [ "$result" = "instructions/kumigashira.md" ]
+}
+
+@test "get_instruction_file: kumigashira + codex → instructions/codex-kumigashira.md" {
+    load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    result=$(get_instruction_file "kumigashira" "codex")
+    [ "$result" = "instructions/codex-kumigashira.md" ]
+}
+
 @test "get_instruction_file: ashigaru3 + kimi → instructions/generated/kimi-ashigaru.md" {
     load_adapter_with "${TEST_TMP}/settings_kimi.yaml"
     result=$(get_instruction_file "ashigaru3")

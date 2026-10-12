@@ -285,6 +285,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "$MODEL_PROFILE" = "vllm-workers" ]; then
+    VLLM_BASE_URL="${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}"
+    VLLM_MODEL_ID="${VLLM_MODEL_ID:-shogun-worker}"
+    export VLLM_BASE_URL VLLM_MODEL_ID
     if [ -z "${VLLM_BASE_URL:-}" ]; then
         echo "エラー: vllm-workers には VLLM_BASE_URL が必要です（例: https://gpu-gateway.example/v1）"
         exit 1
@@ -301,8 +304,12 @@ if [ "$MODEL_PROFILE" = "vllm-workers" ]; then
         echo "エラー: vllm-workers には VLLM_MODEL_ID が必要です（GET /v1/models の id）"
         exit 1
     fi
-    if ! command -v opencode >/dev/null 2>&1; then
-        echo "エラー: vllm-workers profile には OpenCode CLI が必要です"
+    if [ -z "${VLLM_API_KEY:-}" ]; then
+        echo "エラー: vllm-workers には VLLM_API_KEY が必要です"
+        exit 1
+    fi
+    if ! command -v codex >/dev/null 2>&1; then
+        echo "エラー: vllm-workers profile には OpenAI Codex CLI が必要です"
         exit 1
     fi
 fi

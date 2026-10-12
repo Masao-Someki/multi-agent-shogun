@@ -127,9 +127,23 @@ _cli_adapter_shell_quote() {
     printf '%q\n' "$value"
 }
 
+# _cli_adapter_toml_quote value
+# Codexの -c 用にTOML basic stringとして安全に引用する。
+_cli_adapter_toml_quote() {
+    local value="$1"
+    local venv_python="$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3"
+
+    if [[ -x "$venv_python" ]]; then
+        "$venv_python" -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$value" 2>/dev/null && return 0
+    fi
+
+    python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$value"
+}
+
 # _cli_adapter_get_agent_env_prefix agent_id
 # settings.yaml の cli.agents.{id}.env から KEY=VALUE 文字列を返す。
-# 値は固定文字列、または {from_env: NAME, required: true|false}。
+# 値は固定文字列、または {from_env: NAME, required: true|false, fallback_env: NAME}。
+# fallback_env は from_env が未設定か空の時に読む（例: 二つ目の vLLM が無ければ一つ目へ）。
 _cli_adapter_get_agent_env_prefix() {
     local agent_id="$1"
     local result
@@ -149,6 +163,9 @@ try:
         if isinstance(value, dict) and 'from_env' in value:
             source = str(value['from_env'])
             required = value.get('required', True)
+            fallback = value.get('fallback_env')
+            if fallback and not os.environ.get(source):
+                source = str(fallback)
             if source not in os.environ or (required and not os.environ[source]):
                 if required:
                     raise SystemExit(f'Required environment variable {source} is not set')
@@ -165,6 +182,22 @@ except Exception as exc:
     sys.exit(1)
 " ) || return 1
     echo "${result:-}"
+}
+
+# _cli_adapter_get_agent_env_value agent_id key
+# cli.agents.{id}.env の key を解決した値を返す（無ければ空）。
+_cli_adapter_get_agent_env_value() {
+    local agent_id="$1" key="$2"
+    local prefix
+    prefix=$(_cli_adapter_get_agent_env_prefix "$agent_id") || return 1
+    python3 -c '
+import shlex, sys
+key = sys.argv[1] + "="
+for part in shlex.split(sys.argv[2]):
+    if part.startswith(key):
+        print(part[len(key):])
+        break
+' "$key" "$prefix"
 }
 
 # _cli_adapter_is_valid_cli cli_type
@@ -280,14 +313,50 @@ build_cli_command() {
             cmd="$cmd $permission_flag"
             ;;
         codex)
+            local agent_env_prefix
+            agent_env_prefix=$(_cli_adapter_get_agent_env_prefix "$agent_id") || return 1
             cmd="codex"
-            if [[ -n "$model" ]]; then
-                cmd="$cmd --model $model"
+            if [[ "$model" == "vllm-worker" ]]; then
+                local config_value
+                local quoted_value
+                local vllm_model_id="${VLLM_MODEL_ID:-}"
+                # Each worker is pinned to one vLLM server (its own env), so the
+                # server's prefix cache keeps hitting; default is VLLM_BASE_URL.
+                local vllm_base_url
+                vllm_base_url=$(_cli_adapter_get_agent_env_value "$agent_id" VLLM_BASE_URL) || return 1
+                vllm_base_url="${vllm_base_url:-${VLLM_BASE_URL:-}}"
+                local toml_model_id
+                local toml_base_url
+                if [[ -z "$vllm_model_id" || -z "$vllm_base_url" ]]; then
+                    echo "[ERROR] Codex vLLM worker requires VLLM_MODEL_ID and VLLM_BASE_URL" >&2
+                    return 1
+                fi
+                toml_model_id=$(_cli_adapter_toml_quote "$vllm_model_id") || return 1
+                toml_base_url=$(_cli_adapter_toml_quote "$vllm_base_url") || return 1
+                for config_value in \
+                    'model_provider="vllm"' \
+                    "model=$toml_model_id" \
+                    'model_providers.vllm.name="Remote vLLM"' \
+                    "model_providers.vllm.base_url=$toml_base_url" \
+                    'model_providers.vllm.env_key="VLLM_API_KEY"' \
+                    'model_providers.vllm.wire_api="responses"' \
+                    "model_providers.vllm.requires_openai_auth=false" \
+                    "model_context_window=131072" \
+                    "model_max_output_tokens=32000" \
+                    'model_reasoning_effort="high"'; do
+                    quoted_value=$(_cli_adapter_shell_quote "$config_value")
+                    cmd+=" -c $quoted_value"
+                done
+                cmd="$agent_env_prefix$cmd --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
+            else
+                if [[ -n "$model" ]]; then
+                    cmd="$cmd --model $model"
+                fi
+                if [[ -n "$effort" ]]; then
+                    cmd="$cmd -c model_reasoning_effort=\"$effort\""
+                fi
+                cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             fi
-            if [[ -n "$effort" ]]; then
-                cmd="$cmd -c model_reasoning_effort=\"$effort\""
-            fi
-            cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             ;;
         opencode)
             local normalized_model
@@ -376,7 +445,8 @@ get_instruction_file() {
         karo)      role="karo" ;;
         gunshi)    role="gunshi" ;;
         metsuke)   role="metsuke" ;;
-        tanya)     role="tanya" ;;
+        kumigashira) role="kumigashira" ;;
+        tanya|tanya[0-9]*) role="tanya" ;;
         ashigaru*) role="ashigaru" ;;
         *)
             echo "" >&2
@@ -492,8 +562,8 @@ get_agent_model() {
         cursor)
             # Cursor Agent CLI用デフォルトモデル（モデル名はパススルー）
             case "$agent_id" in
-                shogun|gunshi|metsuke)  echo "claude-sonnet-4-6" ;;
-                tanya)                  echo "claude-sonnet-4-6" ;;
+                shogun|gunshi|metsuke|kumigashira)  echo "claude-sonnet-4-6" ;;
+                tanya|tanya[0-9]*)      echo "claude-sonnet-4-6" ;;
                 *)              echo "claude-sonnet-4-6" ;;
             esac
             ;;
@@ -511,7 +581,8 @@ get_agent_model() {
                 shogun)         echo "opus" ;;
                 karo)           echo "sonnet" ;;
                 gunshi|metsuke) echo "opus" ;;
-                tanya)          echo "sonnet" ;;
+                kumigashira)    echo "sonnet" ;;
+                tanya|tanya[0-9]*) echo "sonnet" ;;
                 ashigaru*)      echo "sonnet" ;;
                 *)              echo "sonnet" ;;
             esac
@@ -634,7 +705,7 @@ get_startup_prompt() {
     fi
     case "$cli_type" in
         codex)
-            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done.${session_pool_marker_clause}"
+            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) If the task status is not assigned (done, idle, cancelled), stop here and wait; never report a finished task again. 5) Read files listed in context_files. 6) Carry out the assigned task to completion — edit files, run commands, write the report. Do not stop before the task is done.${session_pool_marker_clause}"
             ;;
         *)
             echo ""

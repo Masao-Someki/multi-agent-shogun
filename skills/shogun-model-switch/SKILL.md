@@ -73,12 +73,12 @@ bash scripts/switch_cli.sh ashigaru5 --type codex --model gpt-5.3-codex-spark
 
 ```bash
 # 全足軽をSonnetに
-for i in $(seq 1 7); do
+for i in $(seq 1 10); do
     bash scripts/switch_cli.sh ashigaru$i --type claude --model claude-sonnet-4-6
 done
 
 # 全足軽をSparkに
-for i in $(seq 1 7); do
+for i in $(seq 1 10); do
     bash scripts/switch_cli.sh ashigaru$i --type codex --model gpt-5.3-codex-spark
 done
 

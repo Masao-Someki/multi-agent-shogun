@@ -1,78 +1,27 @@
 # Remote vLLM worker profile
 
-The `vllm-workers` model profile routes Ashigaru 1–3, Tanya, and Metsuke to a
-remote OpenAI-compatible vLLM endpoint through OpenCode. Shogun, Karo, and
-Gunshi keep the CLI and model configured in `config/settings.yaml`.
+The `vllm-workers` model profile routes Ashigaru 1–10, Tanya and Tanya2 to
+remote OpenAI-compatible vLLM endpoints through Codex, in a 4x4 grid of 16
+panes. Shogun, Karo, Metsuke, Kumigashira and Gunshi keep the CLI and model
+configured in `config/settings.yaml`.
 
-This guide starts with one allocated NVIDIA L40S and
-`Qwen/Qwen2.5-Coder-7B-Instruct`. The model card documents vLLM serving, and
-vLLM documents the `hermes` parser for Qwen2.5 tool calls. The chosen served
-name is `shogun-worker`; the launcher must use that exact API model ID.
+The vLLM server can use any model supported by the installed vLLM build. Set
+its served name to `shogun-worker`, or export the exact ID reported by
+`GET /v1/models` as `VLLM_MODEL_ID` on the Shogun host.
 
-## 1. Start vLLM on the allocated L40S
+## 1. Make an OpenAI-compatible model endpoint available
 
-Run these commands in a shell on the allocated GPU node. Install the
-[Pixi CLI](https://pixi.sh/latest/installation/) on that Linux host first if it
-is not already available. Pixi creates the Python environment and installs
-vLLM on its first run, choosing the PyTorch CUDA backend from the installed
-NVIDIA driver. Replace the SSH host and user in the next section with the
-cluster's allocated compute-node address and your account.
+The Shogun Pixi environment does not install or start a model server. Make the
+OpenAI-compatible endpoint available to the GPU node where Shogun will run.
+Use the cluster's existing model service or a separately managed vLLM
+environment, and note its `/v1` URL, model ID, and inference-only API key.
 
-```bash
-export VLLM_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-printf 'Copy this inference-only key to the Shogun host: %s\n' "$VLLM_API_KEY"
-cd gpu-vllm
-pixi run start
-```
+## 2. Configure endpoint access from the GPU node
 
-`pixi run start` resolves and installs the Linux environment, installs vLLM
-with `uv` if needed, then starts the server. The Pixi workspace and lock file
-are isolated under `gpu-vllm/`, so the Mac Shogun host does not try to install
-CUDA or vLLM. The server binds to loopback; keep this process running while
-using the workers. If the model fails to start or leaves too little cache for
-your workload, lower `--max-model-len` in `gpu-vllm/start-vllm.sh` and set the
-same value for `limit.context` in `config/opencode-vllm.json`.
-
-## 2. Forward the endpoint to the Shogun host
-
-For Babel, where your laptop authenticates to the login node and the login node
-has passwordless SSH access to the allocated compute node, run this on the
-Shogun host and leave it running. Replace only the compute-node placeholder;
-that node name must resolve from the login node:
-
-```bash
-ssh -t -o ExitOnForwardFailure=yes \
-  -L 8000:127.0.0.1:8001 \
-  msomeki@login.babel.cs.cmu.edu \
-  'ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:8001:127.0.0.1:8000 <allocated-compute-host>'
-```
-
-Enter your login password at SSH's hidden prompt. The password is not saved in
-shell history or a file. The nested SSH runs from the login node to the compute
-node, so it uses Babel's passwordless inter-node access. This creates the path
-laptop `localhost:8000` → login `localhost:8001` → compute `localhost:8000`,
-where vLLM is bound. If the nested connection asks for a compute-node password,
-verify the host name and test `ssh <allocated-compute-host>` from an interactive
-login-node shell first.
-
-Do not put the password in this command or a plaintext file. `sshpass` is not
-needed for this interactive tunnel; SSH prompts for the login password itself.
-
-The simpler `ssh -J` form authenticates both SSH hops using keys available to
-the laptop's SSH client. Use it only if your local SSH key is configured for
-the compute node, as described in the [Babel HPC guide](https://www.lti.cmu.edu/misc-pages/hpc1/hpc-guide.html#connecting-to-a-compute-node).
-
-If the cluster provides an authenticated private HTTPS gateway instead, use
-that gateway's `/v1` URL and skip the SSH tunnel. Do not expose an unauthenticated
-vLLM server to the public internet. vLLM's `--api-key`/`VLLM_API_KEY` does not
-authenticate every server endpoint, so keep the server loopback-bound or behind
-a protected gateway.
-
-## 3. Configure and verify the Shogun host
-
-In a third terminal on the Shogun host, from the repository root, set the
-endpoint and model ID. Paste the inference-only key printed in step 1 when
-prompted; `read` does not put it in shell history.
+If the endpoint is on the same node, use its loopback URL. For a remote Babel
+compute-node endpoint, create a tunnel from the GPU node or use the cluster's
+protected gateway. The endpoint URL must be reachable from the GPU node where
+Shogun runs.
 
 ```bash
 export VLLM_BASE_URL="http://127.0.0.1:8000/v1"
@@ -81,7 +30,31 @@ read -rs VLLM_API_KEY
 export VLLM_API_KEY
 ```
 
-Verify that the tunnel, authentication, and served model name are correct:
+If the endpoint is remote, replace these values with its reachable URL, served
+model ID, and key. Do not expose an unauthenticated model server to the public
+internet.
+
+### Two servers (one per GPU)
+
+With two GPUs, run one server per GPU instead of one large server:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 vllm serve <model> --served-model-name shogun-worker --port 8000 ...
+CUDA_VISIBLE_DEVICES=1 vllm serve <model> --served-model-name shogun-worker --port 8001 ...
+export VLLM_BASE_URL_2="http://127.0.0.1:8001/v1"
+```
+
+Each worker is pinned to one server so that server's prefix cache keeps
+hitting: Ashigaru 1, 3, 5, 7, 9 and Tanya use `VLLM_BASE_URL`; Ashigaru 2, 4,
+6, 8, 10 and Tanya2 use `VLLM_BASE_URL_2`. Six workers go to each server, so
+give each server at least six parallel sequences (`--max-num-seqs`). If
+`VLLM_BASE_URL_2` is unset, every worker uses `VLLM_BASE_URL`; that single
+server then needs at least twelve. Both servers must serve the same model ID
+and accept the same `VLLM_API_KEY`.
+
+## 3. Verify endpoint access
+
+Verify that the endpoint, authentication, and served model name are correct:
 
 ```bash
 curl --fail-with-body --max-time 10 \
@@ -90,25 +63,31 @@ curl --fail-with-body --max-time 10 \
 ```
 
 The response should include an entry whose `id` is `shogun-worker`. If you
-change `--served-model-name`, set `VLLM_MODEL_ID` to the new ID. For a private
-endpoint without API-key authentication, leave `VLLM_API_KEY` unset and omit
-the `Authorization` header from the curl command.
+change `--served-model-name`, set `VLLM_MODEL_ID` to the new ID. The profile
+requires `VLLM_API_KEY` and sends it as a bearer token, matching the server's
+`--api-key` value.
 
-## 4. Launch the worker profile
+## 4. Launch Shogun on the GPU node
 
-Install and authenticate OpenCode on the Shogun host if it is not already
-available, then start the formation from the repository root:
+The Pixi environment includes the Linux runtime tools for the Shogun formation
+and bootstraps Codex CLI and Claude Code into the local Pixi workspace on first
+launch. From the repository root on the GPU node, run:
 
 ```bash
-./shutsujin_departure.sh --model-profile vllm-workers
+cd gpu-vllm
+pixi run start
 ```
 
-The profile uses the OpenCode provider alias `vllm/worker`; the provider config
-maps it to `VLLM_MODEL_ID`. Its context and output limits are 32,768 and 8,192
-tokens. The server's `--max-model-len` must be at least the configured context
-limit.
+Set `VLLM_API_KEY` before starting. The Pixi environment does not install the
+vLLM Python server; it starts the Shogun system and routes the worker agents to
+the configured OpenAI-compatible endpoint.
 
-Use a dedicated inference-only key. OpenCode worker processes receive this key
+The profile configures Codex to use the `vllm` provider with `VLLM_MODEL_ID`,
+`VLLM_BASE_URL`, and `VLLM_API_KEY`. It sets the context window to 131,072
+tokens and the maximum output to 32,000 tokens. The server's
+`--max-model-len` must be at least 131,072 for requests to use the full context.
+
+Use a dedicated inference-only key. Codex worker processes receive this key
 in their environment, which a worker can inspect; never reuse Git, cluster, or
 cloud credentials. The profile does not install vLLM, request GPU allocations,
 start the server, or change the configured CLI/model for Shogun, Karo, or
