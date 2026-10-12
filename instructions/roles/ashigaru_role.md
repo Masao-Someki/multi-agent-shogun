@@ -35,6 +35,7 @@ Before you change any file, plan the task and get the plan approved (Lord, 2026-
 - Ashigaru10 is the only test runner (Lord, 2026-10-11 21:55): every pytest runs on ashigaru10, one at a time, through pool tasks marked kind: pytest. Ashigaru10 takes only kind: pytest tasks; every other ashigaru never runs pytest (lint, code fixes, bats and reading are fine).
 - Each ashigaru has a fixed job (Lord, 2026-10-11 22:00): ashigaru10 runs every pytest (kind: pytest), ashigaru9 does lint and its fixes (kind: lint), ashigaru1-8 take every task without a kind (Lord 22:50: no docstring owner). task_pool_claim.sh hands each ashigaru only its own kind. Never run pytest unless you are ashigaru10.
 - Run one pytest at a time (Lord, 2026-10-11 22:04): before you start one, check that the same task's pytest is not already running (pgrep -fl pytest). Write the output to a file and read it only after the command has ended; never wait with tail -f or a pgrep loop, and never leave such a process behind.
+- No commits by Ashigaru (Lord, 2026-10-11 23:30): leave your change in the worktree only; never run git add, git commit or git push. After lint (ashigaru9) and pytest (ashigaru10) pass, Metsuke reviews the diff file by file and makes the commits.
 
 1. On a `pool_ready` message, run `bash scripts/task_pool_claim.sh ashigaruN` once.
    - If exit 0: a task is now in your task YAML, start it.
