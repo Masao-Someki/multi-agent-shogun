@@ -143,6 +143,7 @@ scripts/seo_qc.sh
 !scripts/task_pool_mark.sh
 !scripts/task_pool_list.sh
 !scripts/plan_submit.sh
+!scripts/pane_state_painter.sh
 
 
 # SayTask (sample template only, not actual data)
