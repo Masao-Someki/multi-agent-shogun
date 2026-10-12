@@ -689,6 +689,14 @@ send_cli_command() {
     fi
 }
 
+# pane_text_squashed [lines]
+# The last non-empty pane lines joined with spaces and newlines removed, so
+# text the TUI wrapped over several lines can be matched as one string.
+pane_text_squashed() {
+    timeout 5 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null \
+        | grep -v '^[[:space:]]*$' | tail -n "${1:-12}" | tr -d ' \n'
+}
+
 # ─── Send startup prompt after context reset ───
 # Waits for agent to become idle, then sends a startup prompt that includes
 # full recovery steps (identify, read task YAML, read inbox, start work).
@@ -715,11 +723,21 @@ send_startup_prompt() {
         startup_prompt=$(get_startup_prompt "$AGENT_ID" 2>/dev/null || true)
     fi
     if [[ -z "$startup_prompt" ]]; then
-        startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
+        startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) If the task status is not assigned (done, idle, cancelled), stop here and wait; never report a finished task again. 5) Read context_files. 6) Carry out the assigned task to completion — edit files, run commands, write the report. Do not stop before the task is done."
     fi
     local effective_cli
     effective_cli=$(get_effective_cli_type)
     echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
+    # A fresh Codex session (right after /new) drops keys while it settles:
+    # the head of a typed prompt and the Enter can both be lost. Wait for the
+    # empty input box, check the draft, and re-press Enter while it is unsent.
+    if [[ "$effective_cli" == "codex" ]]; then
+        local ready
+        for ready in 1 2 3 4 5 6 7 8 9 10; do
+            pane_text_squashed 6 | grep -qF "AskCodextodoanything" && break
+            sleep 1
+        done
+    fi
     # Dismiss suggestion UI, then send startup prompt
     if [[ "$effective_cli" != "opencode" ]]; then
         timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
@@ -728,23 +746,34 @@ send_startup_prompt() {
         sleep 1
     fi
     timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
-    # A fresh Codex session treats an Enter right after a long typed burst as
-    # a newline in the draft, so wait longer and re-press Enter while the tail
-    # of the prompt is still sitting in the input box.
     sleep 1
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
-    local tail_words="${startup_prompt: -12}" retry
-    for retry in 1 2 3; do
-        sleep 2
-        if agent_is_busy; then
-            break
+    if [[ "$effective_cli" == "codex" ]]; then
+        local squashed head_words tail_words retry
+        squashed=$(printf '%s' "$startup_prompt" | tr -d ' \n')
+        head_words="${squashed:0:30}"
+        tail_words="${squashed: -12}"
+        if ! pane_text_squashed 30 | grep -qF -- "$head_words"; then
+            echo "[$(date)] [STARTUP] Startup prompt for $AGENT_ID lost its start — typing it again" >&2
+            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+            sleep 1
+            timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
+            sleep 1
         fi
-        if ! timeout 5 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -n 6 | tr -d '\n' | grep -qF -- "$tail_words"; then
-            break
-        fi
-        echo "[$(date)] [STARTUP] Startup prompt still in the input box for $AGENT_ID — pressing Enter again (${retry})" >&2
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
-    done
+        for retry in 1 2 3; do
+            sleep 2
+            # Codex shows '• Working (… • esc to interrupt)' just above the input
+            # box once the turn has started. (agent_is_busy is not used here: the
+            # unsent draft itself contains words its text markers treat as busy.)
+            pane_text_squashed 4 | grep -qiF 'esctointerrupt' && break
+            pane_text_squashed 12 | grep -qF -- "$tail_words" || break
+            echo "[$(date)] [STARTUP] Startup prompt still in the input box for $AGENT_ID — pressing Enter again (${retry})" >&2
+            timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        done
+    else
+        sleep 0.3
+        timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    fi
     STARTUP_PROMPT_SENT=1
 }
 
