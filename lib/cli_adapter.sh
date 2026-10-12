@@ -1567,3 +1567,32 @@ except Exception:
         echo "ashigaru1 ashigaru2 ashigaru3"
     fi
 }
+
+# wrap_agent_cli_command agent_id cmd
+# agent_id: target agent's ID
+# cmd: the command to wrap
+# Returns: a shell command string that cd's into the agent's workdir before executing cmd.
+# The workdir is resolved from config/settings.yaml (cli.agent_workdir).
+# Fallback: SHOGUN_ROOT (the project root).
+wrap_agent_cli_command() {
+    local agent_id="$1"
+    local cmd="$2"
+    local workdir
+    workdir=$(_cli_adapter_read_yaml "cli.agent_workdir" "${CLI_ADAPTER_PROJECT_ROOT}")
+    
+    if [[ -z "$workdir" ]]; then
+        workdir="${CLI_ADAPTER_PROJECT_ROOT}"
+    fi
+    
+    local quoted_workdir
+    quoted_workdir=$(_cli_adapter_shell_quote "$workdir")
+    
+    echo "cd $quoted_workdir && $cmd"
+}
+
+# build_agent_launch_command agent_id
+# alias for wrap_agent_cli_command build_cli_command
+build_agent_launch_command() {
+    local agent_id="$1"
+    wrap_agent_cli_command "$agent_id" "$(build_cli_command "$agent_id")"
+}

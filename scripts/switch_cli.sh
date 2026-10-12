@@ -28,7 +28,7 @@
 #   1. (Optional) settings.yaml を更新
 #   2. 現在のCLIに /exit を送信
 #   3. シェルプロンプトの復帰を待機
-#   4. build_cli_command() で新CLIコマンドを構築
+#   4. build_agent_launch_command() で新CLIコマンドを構築
 #   5. tmux send-keys で新CLIを起動
 #   6. tmux pane metadata を更新（@agent_cli, @model_name）
 # ═══════════════════════════════════════════════════════════════
@@ -519,7 +519,7 @@ TARGET_VARIANT=$(_cli_adapter_read_yaml "cli.agents.${AGENT_ID}.variant" "")
 if [[ "$TARGET_CLI_TYPE" == "opencode" ]]; then
     sync_opencode_agent_frontmatter "$AGENT_ID" "$TARGET_MODEL" "$TARGET_VARIANT"
 fi
-TARGET_CMD=$(build_cli_command "$AGENT_ID")
+TARGET_CMD=$(build_agent_launch_command "$AGENT_ID")
 
 log "Target: cli=${TARGET_CLI_TYPE}, model=${TARGET_MODEL}, effort=${TARGET_EFFORT:-<unset>}, cmd=${TARGET_CMD}"
 
