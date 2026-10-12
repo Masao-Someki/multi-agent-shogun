@@ -14,42 +14,44 @@ messages. No Japanese and no persona speech style. Write short, plain sentences.
 Task YAML and messages from Karo and Gunshi also come to you in English.
 
 
-## Plan Gate and Board
+## Two-Command Protocol (Lord, 2026-10-11; design queue/designs/two_command_protocol.md)
 
-Before you change any file, plan the task and get the plan approved (Lord, 2026-10-11).
+1. Identify yourself: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`.
+2. Run `bash scripts/task_start.sh ashigaruN` and do what it prints:
+   - `idle: no task` (exit 1): stay idle.
+   - `plan gate: write your plan to queue/plans/ashigaruN.txt, then run: bash scripts/task_start.sh ashigaruN --plan queue/plans/ashigaruN.txt`
+     (exit 10): write the plan as plain text, one step per line, for example
+     `1. <do> | files: <a,b> | verify: <exact command> | expect: <result> | size: ~<n> lines`,
+     then run the command it printed.
+   - `submitted: wait for the plan_approved message, then run: bash scripts/task_start.sh ashigaruN`
+     (exit 0): wait. Do not change any file until Kumigashira approves or revises it.
+   - `waiting: your plan is with kumigashira; run task_start.sh again after plan_approved`
+     (exit 11): wait, do not resubmit.
+   - `approved: start work` / `revised: run the plan printed above` / `no plan gate: start work`
+     (exit 0): the brief above it names the task, files in scope, the description, and the
+     checks to run. Start the work now (run the plan as printed if it was revised).
+   - `refused: ...` (exit 2): you are not the agent named in the task; stop.
+3. Edit only the files the brief lists as in scope. Never edit `queue/` files by hand.
+4. Run the checks the brief names, output captured, for example:
+   `{ echo "+ <cmd>"; <cmd>; echo "exit=$?"; } > queue/checks/ashigaruN.txt 2>&1`
+5. Finish: `bash scripts/task_finish.sh ashigaruN "<one-line summary>" --checks queue/checks/ashigaruN.txt`.
+   This writes the report, notifies Metsuke and Karo, marks a pool task's entry done, and claims
+   the next task in one step — its last line is the next brief, or `idle`. If a task was claimed,
+   go back to step 2.
+6. If a step cannot be done as planned, or the spec is unclear, ask Gunshi by inbox
+   (`bash scripts/inbox_write.sh gunshi "<question>" question ashigaruN`, type question) instead
+   of guessing or changing the plan yourself.
 
-1. Write `plan:` into your own task YAML: a list of steps. Each step has `step` (number), `do` (one sentence),
-   `files` (the files it touches, only files the task allows), `verify` (the exact command), `expect`
-   (the expected result) and `size` (rough output, for example "~20 lines"). Keep each step small.
-2. Set `plan_status: submitted`, then send:
-   `bash scripts/inbox_write.sh kumigashira "ashigaruN: plan submitted for <task_id>" plan_submitted ashigaruN`
-3. Wait. Do not change any file until `plan_status` is `approved` or `revised`. Run the plan as it is then written
-   in your task YAML (Kumigashira may have changed it).
-4. After every step, update your board row with one command:
-   `bash scripts/board_update.sh ashigaruN step=<n>/<N> note="<what you just did>"`
-5. If a step cannot be done as planned, stop and ask Kumigashira (type question) instead of changing the plan yourself.
-
-`plan_status: waived` means Karo skipped the gate (a task that edits no file): run it directly, but still update the board.
-
-## Task Pool (Lord, 2026-10-11)
+## Task Pool Assignment Rules (Lord, 2026-10-11)
 
 - Ashigaru10 is the only test runner (Lord, 2026-10-11 21:55): every pytest runs on ashigaru10, one at a time, through pool tasks marked kind: pytest. Ashigaru10 takes only kind: pytest tasks; every other ashigaru never runs pytest (lint, code fixes, bats and reading are fine).
-- Each ashigaru has a fixed job (Lord, 2026-10-11 22:00): ashigaru10 runs every pytest (kind: pytest), ashigaru9 does lint and its fixes (kind: lint), ashigaru1-8 take every task without a kind (Lord 22:50: no docstring owner). task_pool_claim.sh hands each ashigaru only its own kind. Never run pytest unless you are ashigaru10.
+- Each ashigaru has a fixed job (Lord, 2026-10-11 22:00): ashigaru10 runs every pytest (kind: pytest), ashigaru9 does lint and its fixes (kind: lint), ashigaru1-8 take every task without a kind (Lord 22:50: no docstring owner). `task_start.sh` hands each ashigaru only its own kind when it claims from the pool. Never run pytest unless you are ashigaru10.
 - Run one pytest at a time (Lord, 2026-10-11 22:04): before you start one, check that the same task's pytest is not already running (pgrep -fl pytest). Write the output to a file and read it only after the command has ended; never wait with tail -f or a pgrep loop, and never leave such a process behind.
 - No commits by Ashigaru (Lord, 2026-10-11 23:30): leave your change in the worktree only; never run git add, git commit or git push. After lint (ashigaru9) and pytest (ashigaru10) pass, Metsuke reviews the diff file by file and makes the commits.
 
-1. On a `pool_ready` message, run `bash scripts/task_pool_claim.sh ashigaruN` once.
-   - If exit 0: a task is now in your task YAML, start it.
-   - If exit 1: nothing, stay idle.
-2. At the end of every task, after the report and the QC message, run:
-   `bash scripts/task_pool_mark.sh <task_id> done ashigaruN`
-   followed by the claim command again.
-3. For a plan-gate task, run `bash scripts/plan_submit.sh ashigaruN` instead of editing `plan_status` and sending `plan_submitted` by hand.
-
 **Rules:**
 - Never edit `queue/task_pool/` by hand.
-- In a pool task, never edit the `status` line of your task YAML (the scripts set it).
-- Only add your plan block.
+- Never edit the `status` line of your task YAML (the scripts set it).
 - Never write a whole queue file (no `cat >` on queue files).
 
 ## ESPnet Task Context
@@ -124,6 +126,19 @@ Act without waiting for Karo's instruction:
 - Context below 30% → write progress to report YAML, tell Gunshi "context running low"
 - Task larger than expected → include split proposal in report
 - **Spec unclear while implementing or writing tests** (Lord, 2026-10-07) → do not guess and do not stall. Ask Gunshi directly: `bash scripts/inbox_write.sh gunshi "<question>" question ashigaru{N}`, and send a one-line copy to Karo. Gunshi answers you directly (`type: answer`). Keep working on parts the question does not block.
+
+## Ask Early (Lord, 2026-10-12)
+
+Do not spend more than 1 minute guessing if instructions are unclear or if you encounter unexpected bugs.
+
+- **Immediate escalation**: Ask for help immediately if you encounter unclear instructions or unexpected bugs.
+- **How to ask**:
+  - `bash scripts/inbox_write.sh karo "task says edit foo.py but foo.py does not exist" question ashigaru3`
+  - `bash scripts/inbox_write.sh gunshi "which module should own the new check, contract or components?" question ashigaru3`
+  Replace ashigaru3 with your own id, and replace the quoted text with your actual question. Never send the example text as-is. Say plainly what you tried and what you expected, then wait.
+- **Rationale**: Command layer models are stronger and faster. Asking is more efficient than 15 minutes of guessing (e.g., the 2026-10-12 git worktree incident).
+- **Correct behavior**: Asking is correct behavior, not a failure. Nobody thinks less of you for asking; quietly guessing wrong is what causes damage.
+- **Rule of thumb**: Stop and ask after two unsuccessful attempts at the same problem.
 
 ## Shout Mode (echo_message)
 

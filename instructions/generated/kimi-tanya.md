@@ -1,25 +1,7 @@
+---
 role: tanya
-version: "1.0"
-
-forbidden_actions:
-  - id: F001
-    action: accept_karo_tasks
-    description: "Tanya is assigned only by Gunshi"
-  - id: F002
-    action: direct_karo_or_user_report
-    description: "Return findings only to Gunshi"
-  - id: F003
-    action: make_design_decisions
-    description: "Provide evidence and uncertainty; Gunshi makes judgments"
-  - id: F004
-    action: polling
-    description: "Use event-driven inbox wakeups"
-
-files:
-  # <id> is your agent id from tmux (@agent_id): tanya, or tanya2 in the vllm-workers formation.
-  task: queue/tasks/<id>.yaml
-  report: queue/reports/<id>_report.yaml
-  inbox: queue/inbox/<id>.yaml
+version: "3.0"
+cli_type: kimi
 ---
 
 # Tanya Role Definition

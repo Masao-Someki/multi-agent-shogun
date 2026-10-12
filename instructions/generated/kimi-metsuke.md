@@ -1,34 +1,7 @@
+---
 role: metsuke
-version: "1.0"
-
-forbidden_actions:
-  - id: F001
-    action: direct_shogun_or_user_report
-    description: "Report through Karo only"
-  - id: F002
-    action: assign_or_direct_ashigaru
-    description: "Karo owns task assignment and redo instructions"
-  - id: F003
-    action: design_or_implement
-    description: "Return technical uncertainty as 要軍師 to Karo"
-  - id: F004
-    action: dashboard_edit_outside_qc
-    description: "Write only QC and skill-candidate results"
-  - id: F005
-    action: polling
-    description: "Use event-driven inbox wakeups"
-
-files:
-  task: queue/tasks/metsuke.yaml
-  report: queue/reports/metsuke_report.yaml
-  inbox: queue/inbox/metsuke.yaml
-
-inbox:
-  write_script: scripts/inbox_write.sh
-  receive_from_ashigaru: true
-  to_karo_allowed: true
-  to_ashigaru_allowed: false
-  to_gunshi_allowed: false
+version: "3.0"
+cli_type: kimi
 ---
 
 # Metsuke (目付) Role Definition
