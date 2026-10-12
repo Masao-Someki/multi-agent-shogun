@@ -21,6 +21,7 @@ agent_registry_default_agents() {
         ashigaru2 \
         ashigaru3 \
         metsuke \
+        kumigashira \
         tanya \
         gunshi
 }
@@ -74,7 +75,7 @@ agent_registry_has_agent() {
 
 agent_registry_emit_canonical_order() {
     # Read agent IDs from stdin and emit the command-layer formation order:
-    # shogun (separate session), karo, ashigaru<N>, metsuke, tanya<N>, gunshi.
+    # shogun (separate session), karo, ashigaru<N>, metsuke, kumigashira, tanya<N>, gunshi.
     # A profile may add a second Tanya (tanya2); Tanya ids sort numerically
     # like the ashigaru.  Unknown future roles retain their settings.yaml
     # order after these roles.
@@ -111,6 +112,7 @@ agent_registry_emit_canonical_order() {
     done
 
     emit_if_present metsuke
+    emit_if_present kumigashira
 
     # tanya (no number) ranks first, then tanya2, tanya3, ...
     for agent in "${agents[@]}"; do
@@ -125,7 +127,7 @@ agent_registry_emit_canonical_order() {
 
     for agent in "${agents[@]}"; do
         case "$agent" in
-            shogun|karo|ashigaru[0-9]*|gunshi|metsuke|tanya|tanya[0-9]*) continue ;;
+            shogun|karo|ashigaru[0-9]*|gunshi|metsuke|kumigashira|tanya|tanya[0-9]*) continue ;;
         esac
         printf '%s\n' "$agent"
     done

@@ -46,6 +46,8 @@ ALL_AGENTS=("shogun" "karo")
 for _aid in $_ashigaru_ids_str; do ALL_AGENTS+=("$_aid"); done
 ALL_AGENTS+=("gunshi")
 ALL_AGENTS+=("metsuke")
+ALL_AGENTS+=("kumigashira")
+
 # Tanya ids follow the formation: tanya alone, or tanya and tanya2 (vllm-workers profile).
 _tanya_ids_str="tanya"
 if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then

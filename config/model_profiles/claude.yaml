@@ -19,6 +19,10 @@ cli:
       type: claude
       model: claude-opus-5-5
       effort: medium
+    kumigashira:
+      type: claude
+      model: claude-sonnet-5-5
+      effort: medium
     tanya:
       type: claude
       model: claude-sonnet-5

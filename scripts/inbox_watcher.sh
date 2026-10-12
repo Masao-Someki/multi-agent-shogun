@@ -768,10 +768,10 @@ send_context_reset() {
 
     # Safety: never auto-reset context for command-layer agents.
     # Shogun (human-controlled), Karo (coordinator state), Gunshi (strategic state),
-    # Metsuke (QC record) all maintain running context that must not be wiped.
-    # Tanya is a worker: on codex it is reset like the ashigaru; on claude the
-    # session-pool check above already keeps its context.
-    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ]; then
+    # Metsuke (QC record), Kumigashira (plan gate) all maintain running context that must not be wiped.
+    # Tanya is a worker, not command layer; today the session-pool check above
+    # already keeps its context on both claude and codex.
+    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ] || [ "$AGENT_ID" = "kumigashira" ]; then
         echo "[$(date)] [SKIP] $AGENT_ID: suppressing context reset (command-layer agent)" >&2
         return 0
     fi
@@ -1297,7 +1297,7 @@ for s in data.get('specials', []):
                     echo "[$(date)] ESCALATION Phase 3: $AGENT_ID unresponsive for ${age}s, but cli=codex — skipping /clear." >&2
                     FIRST_UNREAD_SEEN=$now  # Reset timer (no destructive action)
                     send_wakeup "$normal_count"
-                elif [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ] || [[ "$AGENT_ID" == tanya* ]]; then
+                elif [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ] || [ "$AGENT_ID" = "metsuke" ] || [ "$AGENT_ID" = "kumigashira" ] || [[ "$AGENT_ID" == tanya* ]]; then
                     # Command-layer agents (and every Tanya) retain context in Phase 3.
                     echo "[$(date)] [SKIP] ESCALATION Phase 3: $AGENT_ID suppressed (command-layer agent, ${age}s). Using Escape+nudge." >&2
                     FIRST_UNREAD_SEEN=$now  # Reset timer

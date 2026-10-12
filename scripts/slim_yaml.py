@@ -17,8 +17,8 @@ import yaml
 
 # tanya2.. exist only in formations that add a second Tanya (vllm-workers profile).
 CANONICAL_TANYA = {'tanya'} | {f'tanya{i}' for i in range(2, 5)}
-CANONICAL_TASKS = {f'ashigaru{i}' for i in range(1, 9)} | {'gunshi', 'metsuke'} | CANONICAL_TANYA
-CANONICAL_REPORTS = {f'ashigaru{i}_report' for i in range(1, 9)} | {'gunshi_report', 'metsuke_report'} | {f'{t}_report' for t in CANONICAL_TANYA}
+CANONICAL_TASKS = {f'ashigaru{i}' for i in range(1, 17)} | {'gunshi', 'metsuke', 'kumigashira'} | CANONICAL_TANYA
+CANONICAL_REPORTS = {f'ashigaru{i}_report' for i in range(1, 17)} | {'gunshi_report', 'metsuke_report', 'kumigashira_report'} | {f'{t}_report' for t in CANONICAL_TANYA}
 IDLE_STUB = {'task': {'status': 'idle'}}
 TOP_LEVEL_IDLE_STUB = {'status': 'idle'}
 TERMINAL_STATUSES = {'done', 'cancelled', 'paused'}

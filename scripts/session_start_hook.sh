@@ -41,7 +41,7 @@ case "$AGENT_ID" in
 esac
 
 case "$AGENT_ID" in
-    shogun|karo|gunshi|metsuke|tanya|tanya[0-9]*)
+    shogun|karo|gunshi|metsuke|kumigashira|tanya|tanya[0-9]*)
         # command-layer agents: full Session Start (Step 1-5)
         cat <<EOF
 **CRITICAL: Session Start 手順を最優先で実行せよ**

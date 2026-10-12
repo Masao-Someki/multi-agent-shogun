@@ -93,7 +93,7 @@ join_lines() {
     load_registry_with "$settings"
 
     result=$(agent_registry_multiagent_agents | join_lines)
-    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke kumigashira tanya gunshi" ]
 }
 
 @test "agent_registry: metsuke and tanya can be omitted for a legacy formation" {
@@ -202,4 +202,50 @@ join_lines() {
     result=$(agent_registry_multiagent_agents | join_lines)
     [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
     [ "$(agent_registry_multiagent_pane_for_agent gunshi 0)" = "multiagent:agents.6" ]
+}
+
+@test "agent_registry: kumigashira sorts after metsuke and before tanya" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    gunshi: {type: claude}
+    tanya: {type: codex}
+    kumigashira: {type: claude}
+    metsuke: {type: claude}
+    karo: {type: claude}
+    ashigaru1: {type: codex}'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 metsuke kumigashira tanya gunshi" ]
+}
+
+
+@test "agent_registry: ten ashigaru with kumigashira and tanya2 (vllm 4x4 formation)" {
+    local settings="$TEST_TMP/settings.yaml"
+    write_settings "$settings" 'cli:
+  agents:
+    gunshi: {type: claude}
+    tanya2: {type: codex}
+    tanya: {type: codex}
+    kumigashira: {type: claude}
+    metsuke: {type: claude}
+    karo: {type: claude}
+    ashigaru10: {type: codex}
+    ashigaru2: {type: codex}
+    ashigaru1: {type: codex}
+    ashigaru9: {type: codex}
+    ashigaru3: {type: codex}
+    ashigaru4: {type: codex}
+    ashigaru5: {type: codex}
+    ashigaru6: {type: codex}
+    ashigaru7: {type: codex}
+    ashigaru8: {type: codex}'
+
+    load_registry_with "$settings"
+
+    result=$(agent_registry_multiagent_agents | join_lines)
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 ashigaru8 ashigaru9 ashigaru10 metsuke kumigashira tanya tanya2 gunshi" ]
+    [ "$(agent_registry_multiagent_pane_for_agent gunshi 0)" = "multiagent:agents.15" ]
 }

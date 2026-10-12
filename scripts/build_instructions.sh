@@ -125,6 +125,7 @@ build_instruction_file "claude" "karo" "karo.md"
 build_instruction_file "claude" "ashigaru" "ashigaru.md"
 build_instruction_file "claude" "gunshi" "gunshi.md"
 build_instruction_file "claude" "metsuke" "metsuke.md"
+build_instruction_file "claude" "kumigashira" "kumigashira.md"
 build_instruction_file "claude" "tanya" "tanya.md"
 
 # Build Codex instruction files
@@ -133,6 +134,7 @@ build_instruction_file "codex" "karo" "codex-karo.md"
 build_instruction_file "codex" "ashigaru" "codex-ashigaru.md"
 build_instruction_file "codex" "gunshi" "codex-gunshi.md"
 build_instruction_file "codex" "metsuke" "codex-metsuke.md"
+build_instruction_file "codex" "kumigashira" "codex-kumigashira.md"
 build_instruction_file "codex" "tanya" "codex-tanya.md"
 
 # Build Copilot instruction files
@@ -141,6 +143,7 @@ build_instruction_file "copilot" "karo" "copilot-karo.md"
 build_instruction_file "copilot" "ashigaru" "copilot-ashigaru.md"
 build_instruction_file "copilot" "gunshi" "copilot-gunshi.md"
 build_instruction_file "copilot" "metsuke" "copilot-metsuke.md"
+build_instruction_file "copilot" "kumigashira" "copilot-kumigashira.md"
 build_instruction_file "copilot" "tanya" "copilot-tanya.md"
 
 # Build Kimi K2 instruction files
@@ -149,6 +152,7 @@ build_instruction_file "kimi" "karo" "kimi-karo.md"
 build_instruction_file "kimi" "ashigaru" "kimi-ashigaru.md"
 build_instruction_file "kimi" "gunshi" "kimi-gunshi.md"
 build_instruction_file "kimi" "metsuke" "kimi-metsuke.md"
+build_instruction_file "kimi" "kumigashira" "kimi-kumigashira.md"
 build_instruction_file "kimi" "tanya" "kimi-tanya.md"
 
 # Build OpenCode instruction files
@@ -157,6 +161,7 @@ build_instruction_file "opencode" "karo" "opencode-karo.md"
 build_instruction_file "opencode" "ashigaru" "opencode-ashigaru.md"
 build_instruction_file "opencode" "gunshi" "opencode-gunshi.md"
 build_instruction_file "opencode" "metsuke" "opencode-metsuke.md"
+build_instruction_file "opencode" "kumigashira" "opencode-kumigashira.md"
 build_instruction_file "opencode" "tanya" "opencode-tanya.md"
 
 # Build Cursor Agent instruction files
@@ -165,6 +170,7 @@ build_instruction_file "cursor" "karo" "cursor-karo.md"
 build_instruction_file "cursor" "ashigaru" "cursor-ashigaru.md"
 build_instruction_file "cursor" "gunshi" "cursor-gunshi.md"
 build_instruction_file "cursor" "metsuke" "cursor-metsuke.md"
+build_instruction_file "cursor" "kumigashira" "cursor-kumigashira.md"
 build_instruction_file "cursor" "tanya" "cursor-tanya.md"
 # Build Antigravity instruction files
 build_instruction_file "antigravity" "shogun" "antigravity-shogun.md"
@@ -172,6 +178,7 @@ build_instruction_file "antigravity" "karo" "antigravity-karo.md"
 build_instruction_file "antigravity" "ashigaru" "antigravity-ashigaru.md"
 build_instruction_file "antigravity" "gunshi" "antigravity-gunshi.md"
 build_instruction_file "antigravity" "metsuke" "antigravity-metsuke.md"
+build_instruction_file "antigravity" "kumigashira" "antigravity-kumigashira.md"
 build_instruction_file "antigravity" "tanya" "antigravity-tanya.md"
 
 # ============================================================
@@ -199,6 +206,7 @@ generate_agents_md() {
         -e 's|instructions/ashigaru\.md|instructions/generated/codex-ashigaru.md|g' \
         -e 's|instructions/gunshi\.md|instructions/generated/codex-gunshi.md|g' \
         -e 's|instructions/metsuke\.md|instructions/generated/codex-metsuke.md|g' \
+        -e 's|instructions/kumigashira\.md|instructions/generated/codex-kumigashira.md|g' \
         -e 's|instructions/tanya\.md|instructions/generated/codex-tanya.md|g' \
         -e 's|~/.claude/|~/.codex/|g' \
         -e 's|\.claude\.json|.codex/config.toml|g' \
@@ -247,6 +255,7 @@ generate_copilot_instructions() {
         -e 's|instructions/ashigaru\.md|instructions/generated/copilot-ashigaru.md|g' \
         -e 's|instructions/gunshi\.md|instructions/generated/copilot-gunshi.md|g' \
         -e 's|instructions/metsuke\.md|instructions/generated/copilot-metsuke.md|g' \
+        -e 's|instructions/kumigashira\.md|instructions/generated/copilot-kumigashira.md|g' \
         -e 's|instructions/tanya\.md|instructions/generated/copilot-tanya.md|g' \
         -e 's|~/.claude/|~/.copilot/|g' \
         -e 's|\.claude\.json|.copilot/config.json|g' \
@@ -287,6 +296,7 @@ generate_kimi_instructions() {
         -e 's|instructions/ashigaru\.md|instructions/generated/kimi-ashigaru.md|g' \
         -e 's|instructions/gunshi\.md|instructions/generated/kimi-gunshi.md|g' \
         -e 's|instructions/metsuke\.md|instructions/generated/kimi-metsuke.md|g' \
+        -e 's|instructions/kumigashira\.md|instructions/generated/kimi-kumigashira.md|g' \
         -e 's|instructions/tanya\.md|instructions/generated/kimi-tanya.md|g' \
         -e 's|~/.claude/|~/.kimi/|g' \
         -e 's|\.claude\.json|.kimi/config.json|g' \
@@ -350,7 +360,7 @@ generate_opencode_agents() {
     # derive generated file names from git-ignored config/settings.yaml or
     # runtime queue/tasks state.
     local agent_ids
-    agent_ids="shogun karo gunshi metsuke tanya ashigaru1 ashigaru2 ashigaru3"
+    agent_ids="shogun karo gunshi metsuke kumigashira tanya ashigaru1 ashigaru2 ashigaru3"
 
     for agent_id in $agent_ids; do
         # Determine role (all ashigaru share the same role template)
@@ -375,6 +385,9 @@ generate_opencode_agents() {
             metsuke)
                 role_title="Metsuke — completion quality control and QC aggregation"
                 ;;
+            kumigashira)
+                role_title="Kumigashira — step-plan review before the Ashigaru work"
+                ;;
             tanya)
                 role_title="Tanya — Gunshi's dedicated research aide"
                 ;;
@@ -395,7 +408,7 @@ agent_id = sys.argv[2]
 def role_for_agent(agent_id: str) -> str:
     if agent_id.startswith('ashigaru'):
         return 'ashigaru'
-    if agent_id in {'shogun', 'karo', 'gunshi', 'metsuke', 'tanya'}:
+    if agent_id in {'shogun', 'karo', 'gunshi', 'metsuke', 'kumigashira', 'tanya'}:
         return agent_id
     return ''
 
