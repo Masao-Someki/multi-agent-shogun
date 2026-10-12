@@ -1,6 +1,6 @@
-# Route Ashigaru and Tanya to the separately hosted vLLM endpoint via Codex.
-# Shogun, Karo, Gunshi and Metsuke (QC, always Opus) inherit their commercial
-# CLI/model settings from
+# Route Ashigaru and Tanya to the separately hosted vLLM endpoint via Codex,
+# and Metsuke to Codex gpt-6.1-sol so QC no longer draws on the Claude budget.
+# Shogun, Karo and Gunshi inherit their commercial CLI/model settings from
 # config/settings.yaml.
 cli:
   agents:
@@ -38,6 +38,12 @@ cli:
     ashigaru10: *vllm_worker_2
     tanya: *vllm_worker
     tanya2: *vllm_worker_2
+    # QC runs on the Codex subscription, not on vLLM: Metsuke is the last gate
+    # before a commit and needs a model that reads a diff as well as Opus does.
+    metsuke:
+      type: codex
+      model: gpt-6.1-sol
+      effort: medium
 # vLLM is free; with two servers (VLLM_BASE_URL on GPU 0, VLLM_BASE_URL_2 on
 # GPU 1) this formation runs ten Ashigaru and two Tanya, each pinned to one
 # server, in a 4x4 grid.  The Claude formation (no profile) stays at three and one.
