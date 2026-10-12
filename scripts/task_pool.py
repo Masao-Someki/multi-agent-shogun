@@ -36,7 +36,34 @@ FIELDS = (
     "depends_on",
     "description",
 )
+# Dedicated ashigaru per task kind (Lord, 2026-10-11): a task with one of these
+# kinds goes only to its owner, and an owner takes only its own kind.  Tasks
+# without a listed kind go to the other ashigaru.  Override with POOL_KIND_OWNERS
+# as "kind=agent kind=agent ...".
+KIND_OWNERS = dict(
+    pair.split("=", 1)
+    for pair in os.environ.get(
+        "POOL_KIND_OWNERS",
+        "pytest=ashigaru10 lint=ashigaru9",
+    ).split()
+    if "=" in pair
+)
 FREE = ("idle", "done", "cancelled")
+
+
+def present_owners():
+    """Return KIND_OWNERS limited to owners in the running formation.
+
+    pool_dispatcher.sh exports POOL_PRESENT_AGENTS (the agent ids of the live
+    panes).  The Claude formation has three ashigaru, so ashigaru9 and
+    ashigaru10 are absent there and their kinds go to any ashigaru.  Without
+    the variable (tests, a manual claim) every owner counts as present.
+    """
+    present = os.environ.get("POOL_PRESENT_AGENTS") or os.environ.get("POOL_AGENTS")
+    if present is None:
+        return dict(KIND_OWNERS)
+    agents = set(present.split())
+    return {kind: owner for kind, owner in KIND_OWNERS.items() if owner in agents}
 
 
 def _str(dumper, value):
@@ -168,29 +195,39 @@ def add(drafts):
 
 def claim(agent):
     """Give the oldest claimable open task to agent (exit 1: none, 3: busy)."""
-    status, current = task_state(agent)
-    if status in ("assigned", "in_progress"):
-        print(current)
-        sys.exit(3)
     with Lock():
+        status, current = task_state(agent)
+        if status in ("assigned", "in_progress"):
+            print(current)
+            sys.exit(3)
         pool = entries()
         done = {e["task_id"] for e in pool if e.get("status") == "done"}
         busy = set()
         for e in pool:
             if e.get("status") == "claimed":
                 busy.update(e.get("files") or [])
+
+        owners = present_owners()
+
+        def fits(entry):
+            kind = entry.get("kind")
+            if kind in owners:
+                return owners[kind] == agent
+            if agent in owners.values():
+                return False
+            return True
+
         ready = [
             e
             for e in pool
             if e.get("status") == "open"
             and set(e.get("depends_on") or []) <= done
             and not set(e.get("files") or []) & busy
+            and fits(e)
         ]
         if not ready:
             sys.exit(1)
         entry = sorted(ready, key=lambda e: (e.get("created", ""), e["task_id"]))[0]
-        entry.update(status="claimed", claimed_by=agent, claimed_at=now())
-        save(entry_path(entry["task_id"]), entry)
         plan_status = "pending" if entry["plan_gate"] else "waived"
         task = {
             k: entry[k] for k in ("task_id", "parent_cmd", "project", "bloom_level")
@@ -204,6 +241,12 @@ def claim(agent):
             status="assigned",
             timestamp=now(),
         )
+        status, current = task_state(agent)
+        if status in ("assigned", "in_progress"):
+            print(current)
+            sys.exit(3)
+        entry.update(status="claimed", claimed_by=agent, claimed_at=now())
+        save(entry_path(entry["task_id"]), entry)
         save(task_path(agent), {"task": task})
     subprocess.run(
         [

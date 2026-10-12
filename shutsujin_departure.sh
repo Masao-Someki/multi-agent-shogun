@@ -1368,7 +1368,10 @@ NINJA_EOF
     log_success "  └─ $((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT + 1))エージェント分のinbox_watcher起動完了"
 
     # 名札の色付け（働き中=緑、待機=灰）。pane の option を付けるだけで send-keys はせぬ。
-    nohup bash "$SCRIPT_DIR/scripts/pane_state_painter.sh" 3 > "$SCRIPT_DIR/logs/pane_state_painter.log" 2>&1 &
+    nohup "$BASH" "$SCRIPT_DIR/scripts/pane_state_painter.sh" > "$SCRIPT_DIR/logs/pane_state_painter.log" 2>&1 &
+
+    # task pool の配り手: 手の空いた足軽に pool の task を取ってやり、task_assigned で知らせる（script、send-keys はせぬ）
+    nohup "$BASH" "$SCRIPT_DIR/scripts/pool_dispatcher.sh" 20 > "$SCRIPT_DIR/logs/pool_dispatcher.log" 2>&1 &
 
     # STEP 6.7 は廃止 — CLAUDE.md Session Start (step 1: tmux agent_id) で各自が自律的に
     # 自分のinstructions/*.mdを読み込む。検証済み (2026-02-08)。
