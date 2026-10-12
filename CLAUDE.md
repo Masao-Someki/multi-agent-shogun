@@ -4,13 +4,13 @@ version: "3.0"
 updated: "2026-02-07"
 description: "Claude Code + tmux multi-agent parallel dev platform with sengoku military hierarchy"
 
-hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-3 (1-5 with --model-profile vllm-workers) / Gunshi / Metsuke; Gunshi → Tanya (and tanya2 in the vllm formation)"
+hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-3 (1-10 with --model-profile vllm-workers) / Gunshi / Metsuke / Kumigashira; Gunshi → Tanya (and tanya2 in the vllm formation)"
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 tmux_sessions:
   shogun: { pane_0: shogun }
-  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }   # Claude formation (default)
-  multiagent_vllm: { pane_0: karo, pane_1-5: ashigaru1-5, pane_6: metsuke, pane_7: tanya, pane_8: tanya2, pane_9: gunshi }   # --model-profile vllm-workers
+  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: kumigashira, pane_6: tanya, pane_7: gunshi }   # Claude formation (default)
+  multiagent_vllm: { pane_0: karo, pane_1-10: ashigaru1-10, pane_11: metsuke, pane_12: kumigashira, pane_13: tanya, pane_14: tanya2, pane_15: gunshi }   # --model-profile vllm-workers
   pane_lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'   # the pane numbers above follow the formation; look them up, never assume"
 
 files:
@@ -19,6 +19,7 @@ files:
   context: "context/{project}.md"       # Project-specific notes for ashigaru/gunshi
   cmd_queue: queue/shogun_to_karo.yaml  # Shogun → Karo commands
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
+  task_pool: "queue/task_pool/<task_id>.yaml" # Karo's split tasks; ashigaru claim them
   gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi strategic assignments
   metsuke_task: queue/tasks/metsuke.yaml # Metsuke QC state
   tanya_task: "queue/tasks/tanya.yaml"  # Gunshi → Tanya bounded research assignments (tanya2: queue/tasks/tanya2.yaml, vllm formation only)
@@ -27,6 +28,8 @@ files:
   gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi → Karo strategic reports
   metsuke_report: queue/reports/metsuke_report.yaml # Metsuke → Karo QC reports
   tanya_report: queue/reports/tanya_report.yaml # Tanya → Gunshi evidence reports
+  kumigashira_task: queue/tasks/kumigashira.yaml # Kumigashira plan-gate state
+  kumigashira_report: queue/reports/kumigashira_report.yaml # Kumigashira → Karo notes
   dashboard: dashboard.md              # Human-readable summary (secondary data)
   daily_log: "logs/daily/YYYY-MM-DD.md" # Karo appends cmd summary on completion. Shogun reads for daily reports.
   ntfy_inbox: queue/ntfy_inbox.yaml    # Incoming ntfy messages from Lord's phone
@@ -73,7 +76,7 @@ language:
 
 1. Identify self: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
 2. **Read `memory/MEMORY.md`** (shogun only) — persistent cross-session memory. If file missing, skip. *Claude Code users: this file is also auto-loaded via Claude Code's memory feature.*
-3. **Read your instructions file**: shogun→`instructions/shogun.md`, karo→`instructions/karo.md`, ashigaru→`instructions/ashigaru.md`, gunshi→`instructions/gunshi.md`, metsuke→`instructions/metsuke.md`, tanya and tanya2→`instructions/tanya.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
+3. **Read your instructions file**: shogun→`instructions/shogun.md`, karo→`instructions/karo.md`, ashigaru→`instructions/ashigaru.md`, gunshi→`instructions/gunshi.md`, metsuke→`instructions/metsuke.md`, kumigashira→`instructions/kumigashira.md`, tanya and tanya2→`instructions/tanya.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
 4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
 5. Review forbidden actions, then start work
 
@@ -100,7 +103,7 @@ Step 4: Start work (only if assigned=work)
 
 Forbidden after /clear (ashigaru): reading instructions/*.md (1st task), polling (F004), contacting humans directly (F002). Trust task YAML only — pre-/clear memory is gone.
 
-## /clear・compaction Recovery (karo / gunshi / metsuke / tanya / shogun — command-layer agents)
+## /clear・compaction Recovery (karo / gunshi / metsuke / kumigashira / tanya / shogun — command-layer agents)
 
 Persona・戦国口調・forbidden_actions の再確立は **SessionStart hook** (`scripts/session_start_hook.sh`, matcher=`clear`/`compact`) が自動注入する。手順詳細は hook 側を正とする。
 
@@ -110,7 +113,7 @@ Persona・戦国口調・forbidden_actions の再確立は **SessionStart hook**
 
 ## Summary Generation (compaction)
 
-Always include: 1) Agent role (shogun/karo/ashigaru/gunshi/metsuke/tanya) 2) Forbidden actions list 3) Current task ID (cmd_xxx)
+Always include: 1) Agent role (shogun/karo/ashigaru/gunshi/metsuke/tanya/kumigashira) 2) Forbidden actions list 3) Current task ID (cmd_xxx)
 
 # Communication Protocol
 
@@ -152,6 +155,8 @@ The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
 Special cases (CLI commands sent via `tmux send-keys`):
 - `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
 - `type: model_switch` → sends the /model command via send-keys
+- `type: plan_submitted` / `plan_approved` / `plan_escalation` → plan gate messages (Ashigaru → Kumigashira, Kumigashira/Gunshi → Ashigaru, Kumigashira → Gunshi); delivered as a normal inbox nudge
+- `type: pool_ready` → the task pool has open tasks; an idle ashigaru runs `bash scripts/task_pool_claim.sh ashigaruN` once
 
 **Escalation** (when nudge is not processed):
 
@@ -161,7 +166,7 @@ Special cases (CLI commands sent via `tmux send-keys`):
 | 2〜4 min | Escape×2 + recovery nudge | Copilot/Kimi use Escape×2 + Ctrl-C + nudge. Claude/Codex/OpenCode use a plain nudge instead |
 | 4 min+ | `/clear` sent (max once per 5 min) | Force session reset + YAML re-read |
 
-## Inbox Processing Protocol (karo/ashigaru/gunshi/metsuke/tanya)
+## Inbox Processing Protocol (karo/ashigaru/gunshi/metsuke/tanya/kumigashira)
 
 When you receive `inboxN` (e.g. `inbox3`):
 1. `Read queue/inbox/{your_id}.yaml`
@@ -196,6 +201,8 @@ Race condition is eliminated: the context reset wipes old context. Agent re-read
 | Direction | Method | Reason |
 |-----------|--------|--------|
 | Ashigaru → Metsuke (Gunshi fallback) | Report YAML + inbox_write | Completion QC & dashboard aggregation |
+| Ashigaru → Kumigashira | plan in task YAML + inbox_write (plan_submitted) | Plan gate before work |
+| Kumigashira → Gunshi | inbox_write (plan_escalation) | Plan restructuring decision |
 | Metsuke → Karo | Report YAML + inbox_write | PASS/FAIL/要軍師 QC result |
 | Tanya → Gunshi | Report YAML + inbox_write | Bounded evidence/research result |
 | Gunshi → Karo | Report YAML + inbox_write | Strategic reports and escalated technical judgment |

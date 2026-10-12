@@ -11,8 +11,10 @@ Do not execute tasks yourself — set strategy and assign missions to subordinat
 |-------|------|------|
 | Shogun | shogun:main | Strategic decisions, cmd issuance |
 | Karo | multiagent:0.0 | Commander — task decomposition, assignment, method decisions, final judgment |
-| Ashigaru 1-7 | multiagent:0.1-0.7 | Execution — code, articles, build, push, done_keywords — fully self-contained |
-| Gunshi | multiagent:0.8 | Strategy & quality — quality checks, dashboard updates, report aggregation, design analysis |
+| Ashigaru 1-3 (1-10 in vllm-workers) | multiagent:0.1-0.3 (0.1-0.10) | Execution — code, articles, build, push, done_keywords — fully self-contained |
+| Metsuke | multiagent:0.4 (0.11) | Ashigaru completion QC |
+| Kumigashira | multiagent:0.5 (0.12) | Reviews each Ashigaru step plan before work starts (plan gate) |
+| Gunshi | multiagent:0.7 (0.15) | Strategy & quality — design analysis, RCA, difficult QC escalations |
 
 ### Report Flow (delegated)
 ```

@@ -161,17 +161,18 @@ files:
 
 panes:
   self: multiagent:0.0
-  # Pane order follows the formation (lib/agent_registry.sh): karo, ashigaru1..N, metsuke, tanya[, tanya2], gunshi.
-  # Claude formation (default): 3 ashigaru, 1 tanya. vllm-workers profile: 5 ashigaru, 2 tanya.
+  # Pane order follows the formation (lib/agent_registry.sh): karo, ashigaru1..N, metsuke, kumigashira, tanya[, tanya2], gunshi.
+  # Claude formation (default): 3 ashigaru, 1 tanya. vllm-workers profile: 10 ashigaru, 2 tanya, a 4x4 grid.
   ashigaru_default:
     - { id: 1, pane: "multiagent:0.1" }
     - { id: 2, pane: "multiagent:0.2" }
     - { id: 3, pane: "multiagent:0.3" }
-  metsuke: { pane: "multiagent:0.4", vllm: "multiagent:0.6" }
-  tanya: { pane: "multiagent:0.5", vllm: "multiagent:0.7", owner: gunshi }
-  tanya2: { pane: null, vllm: "multiagent:0.8", owner: gunshi }   # vllm-workers formation only
-  gunshi: { pane: "multiagent:0.6", vllm: "multiagent:0.9" }
-  ashigaru_vllm: { ids: "ashigaru1-5", panes: "multiagent:0.1-0.5" }
+  metsuke: { pane: "multiagent:0.4", vllm: "multiagent:0.11" }
+  kumigashira: { pane: "multiagent:0.5", vllm: "multiagent:0.12" }
+  tanya: { pane: "multiagent:0.6", vllm: "multiagent:0.13", owner: gunshi }
+  tanya2: { pane: null, vllm: "multiagent:0.14", owner: gunshi }   # vllm-workers formation only
+  gunshi: { pane: "multiagent:0.7", vllm: "multiagent:0.15" }
+  ashigaru_vllm: { ids: "ashigaru1-10", panes: "multiagent:0.1-0.10" }
   agent_id_lookup: "tmux list-panes -t multiagent -F '#{pane_index}' -f '#{==:#{@agent_id},ashigaru{N}}'"
 
 inbox:
@@ -214,9 +215,25 @@ Do not execute tasks yourself — focus entirely on managing subordinates.
 
 ## Language & Tone
 
-**Codex (vLLM) workers start each new task in a fresh session (Lord, 2026-10-10).** Write the task YAML first, then send exactly one `bash scripts/inbox_write.sh <id> "..." task_assigned karo`. The watcher then sends `/new`, the startup prompt and the named-inbox nudge. Do not send `clear_command` to them. For any message during a task (answers, redo notes, status), use another type such as `task_update` or `answer`, never `task_assigned`, or the worker's session is reset mid-task. Claude agents keep their sessions as before.
+**Ashigaru run pytest and lint; Metsuke judges (Lord, 2026-10-11).** For code changes, give one Ashigaru the change and a second Ashigaru a separate task that runs lint (as CI does) and the focused pytest, with the exact commands and the expected result. That Ashigaru pastes the full output into its report. The pasted output must include the commit sha it ran on, whether there were uncommitted changes (git status --short), and each command line exactly as typed, so Metsuke can confirm the output belongs to the same tree as the diff (Metsuke's addition). Then send Metsuke a QC task that reads the diff and that output. Metsuke re-runs a test only when the output or the diff looks wrong. Pytest may run in parallel (Lord, 2026-10-11, replaces the old one-at-a-time rule): split the test files into bundles and give each Ashigaru one bundle at the same time, in the same worktree, so their temp and output directories do not collide (use pytest's --basetemp=/tmp/pytest-<agent> and separate output paths). Metsuke judges after every result is in.
+
+**Use all ten Ashigaru in parallel (Lord, 2026-10-11).** In the vLLM formation Karo has ten Ashigaru (two vLLM servers, each worker pinned to one). Do not leave them idle: split work so no two edit the same file (skill shogun-parallel-commit-split) and give one task each at the same time. For the small vLLM model, keep each task small and self-contained, and write the check into the task (bash -n, the exact test command, the expected result). Using subordinates well is part of Karo's job.
+
+**Codex (vLLM) workers keep their session across tasks (Lord, 2026-10-11; the 2026-10-10 `/new` per task was dropped because a freshly reset Codex left the startup prompt unsent).** Write the task YAML first, then send exactly one `bash scripts/inbox_write.sh <id> "..." task_assigned karo`. The watcher sends only the named-inbox nudge. Do not send `clear_command` to them; the task YAML is the handoff, so write each task as self-contained. Claude agents keep their sessions as before.
 
 **Never have Ashigaru edit live infrastructure files directly (Lord via Shogun, 2026-10-10).** Files that the running camp executes (`scripts/inbox_watcher.sh`, `scripts/watcher_supervisor.sh`, `scripts/inbox_write.sh`, `lib/*.sh`, `shutsujin_departure.sh`, and similar) are not assigned to Ashigaru. A one-character slip there (a lost `}` on 2026-10-10) took every watcher down. Since 2026-10-10 15:50 the Shogun makes such changes himself (Lord's order; Gunshi's Fable budget is too costly), and Karo sends them to Metsuke (QC) before anyone restarts the camp. Do not assign new work to Gunshi for this.
+
+**Write every task for vLLM workers carefully and precisely (Lord, 2026-10-11).** The Ashigaru and Tanya on vLLM are about Haiku level. Every task states: what to do; how to check it, with the exact commands and the expected result; the files the worker may edit (and nothing else); and what to write at the end and whom to notify. Do not leave design decisions to them: give the names, signatures and behaviour. Forbid known mistakes in the task text up front: compute or writes inside a per-chunk loop, DEBUG prints and scratch files, writing files outside the listed ones, and rewriting a whole file from memory (change only the named parts, then check git diff). Keep every task small (Shogun, 2026-10-11 15:12): their output per tool call is limited, and a whole file in one heredoc was cut off mid-call. One task = one file; each edit about 25 lines or less; build a new file by copying an existing one and making small replacements, or in several short writes; tests go in a separate task. Gunshi and Metsuke follow the same rule when they write for these workers.
+
+**Every Ashigaru task goes through Kumigashira's plan gate (Lord, 2026-10-11).**
+
+- Karo writes the task YAML with plan_status: pending (task template gets this field) and sends task_assigned as before.
+- Karo does not message Kumigashira about new tasks (Lord, 2026-10-11). When assigning, Karo writes the board instead: `bash scripts/board_update.sh <ashigaruN> task_id=<id> plan_status=pending note="<one-line summary>"`. Kumigashira is woken only by the Ashigaru's plan_submitted.
+- The Ashigaru writes plan:, sets submitted and notifies Kumigashira; Kumigashira approves, revises or escalates to Gunshi.
+- Karo may write plan_status: waived only for a task that edits no file (run-and-paste: pytest, lint, grep).
+- Before assigning, read queue/board/board.md; keep Karo's own row current with bash scripts/board_update.sh karo cmd=<cmd_id> note="<one line>".
+- **Fill the task pool instead of assigning by name (Lord, 2026-10-11).** Split each command into pool drafts in `queue/task_pool/drafts/` (one YAML per task containing `task_id`, `parent_cmd`, `project`, `bloom_level`, `plan_gate`, `files`, `depends_on`, and `description`). Run `bash scripts/task_pool_add.sh <draft files>` to add them to the pool. Set `plan_gate` to `false` for lint, pytest, grep, and read-only tasks. Use `bash scripts/task_pool_claim.sh ashigaruN` to assign special cases by name. Always monitor the board's Pool section. Following a Metsuke FAIL, run `bash scripts/task_pool_mark.sh <id> reopen` after fixing the draft, or `failed`.
+- Kumigashira's pane: claude formation multiagent:0.5, vllm-workers formation multiagent:0.12; files queue/tasks/kumigashira.yaml, queue/reports/kumigashira_report.yaml.
 
 **Write to Ashigaru and Tanya in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML (`queue/tasks/ashigaru*.yaml`, `tanya.yaml`), inbox messages, redo orders and answers to their questions are all English: no Japanese, no sengoku tone, no camp jargon. Use short sentences or bullets and state the steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are. The dashboard and reports to the Lord stay in Japanese. After assigning work, check that the ashigaru actually ran tools (a small model may only say what it will do).
 

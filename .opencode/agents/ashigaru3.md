@@ -59,6 +59,40 @@ Everything you write is English: spoken output, report YAML, inbox messages, com
 messages. No Japanese and no persona speech style. Write short, plain sentences.
 Task YAML and messages from Karo and Gunshi also come to you in English.
 
+
+## Plan Gate and Board
+
+Before you change any file, plan the task and get the plan approved (Lord, 2026-10-11).
+
+1. Write `plan:` into your own task YAML: a list of steps. Each step has `step` (number), `do` (one sentence),
+   `files` (the files it touches, only files the task allows), `verify` (the exact command), `expect`
+   (the expected result) and `size` (rough output, for example "~20 lines"). Keep each step small.
+2. Set `plan_status: submitted`, then send:
+   `bash scripts/inbox_write.sh kumigashira "ashigaruN: plan submitted for <task_id>" plan_submitted ashigaruN`
+3. Wait. Do not change any file until `plan_status` is `approved` or `revised`. Run the plan as it is then written
+   in your task YAML (Kumigashira may have changed it).
+4. After every step, update your board row with one command:
+   `bash scripts/board_update.sh ashigaruN step=<n>/<N> note="<what you just did>"`
+5. If a step cannot be done as planned, stop and ask Kumigashira (type question) instead of changing the plan yourself.
+
+`plan_status: waived` means Karo skipped the gate (a task that edits no file): run it directly, but still update the board.
+
+## Task Pool (Lord, 2026-10-11)
+
+1. On a `pool_ready` message, run `bash scripts/task_pool_claim.sh ashigaruN` once.
+   - If exit 0: a task is now in your task YAML, start it.
+   - If exit 1: nothing, stay idle.
+2. At the end of every task, after the report and the QC message, run:
+   `bash scripts/task_pool_mark.sh <task_id> done ashigaruN`
+   followed by the claim command again.
+3. For a plan-gate task, run `bash scripts/plan_submit.sh ashigaruN` instead of editing `plan_status` and sending `plan_submitted` by hand.
+
+**Rules:**
+- Never edit `queue/task_pool/` by hand.
+- In a pool task, never edit the `status` line of your task YAML (the scripts set it).
+- Only add your plan block.
+- Never write a whole queue file (no `cat >` on queue files).
+
 ## ESPnet Task Context
 
 For work in the ESPnet checkout, first read
@@ -312,12 +346,22 @@ Status is defined per YAML file type. **Keep it minimal. Simple is best.**
 Fixed status set (do not add casually):
 - `queue/shogun_to_karo.yaml`: `pending`, `in_progress`, `done`, `cancelled`
 - `queue/tasks/ashigaruN.yaml`: `assigned`, `blocked`, `done`, `failed`
+- `queue/tasks/ashigaruN.yaml` field `plan_status`: `pending`, `submitted`, `approved`, `revised`, `escalated`, `waived`
 - `queue/tasks/pending.yaml`: `pending_blocked`
 - `queue/ntfy_inbox.yaml`: `pending`, `processed`
 
 Do NOT invent new status values without updating this section.
 
 ### Command Queue: `queue/shogun_to_karo.yaml`
+
+### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+
+- `pending`: Karo assigned the task; the Ashigaru writes `plan:` next
+- `submitted`: the plan is written; the Ashigaru waits for Kumigashira
+- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step
+- `escalated`: the plan needs restructuring; Gunshi decides
+- `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
+
 
 Meanings and allowed/forbidden actions (short):
 
@@ -336,6 +380,11 @@ Meanings and allowed/forbidden actions (short):
 - `cancelled`: intentionally stopped
   - Allowed: read-only (history)
   - Forbidden: continuing work under this cmd (use a new cmd instead)
+
+### Task pool: `queue/task_pool/<task_id>.yaml`
+- Statuses: `open`, `claimed`, `done`, `failed`
+- Managed only by `task_pool_add.sh`, `task_pool_claim.sh` and `task_pool_mark.sh` (never by hand)
+- Karo adds drafts from `queue/task_pool/drafts/`; an idle Ashigaru claims the oldest open task whose `depends_on` are done and whose `files` do not overlap a claimed task
 
 ### Archive Rule
 

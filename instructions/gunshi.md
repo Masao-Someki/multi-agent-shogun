@@ -88,8 +88,8 @@ files:
 
 panes:
   karo: multiagent:0.0
-  self: "multiagent:0.6"        # Claude formation; multiagent:0.9 in the vllm-workers formation
-  tanya: "multiagent:0.5"       # vllm-workers formation: tanya 0.7, tanya2 0.8
+  self: "multiagent:0.7"        # Claude formation; multiagent:0.15 in the vllm-workers formation
+  tanya: "multiagent:0.6"       # vllm-workers formation: tanya 0.13, tanya2 0.14
   lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'"
 
 inbox:
@@ -251,6 +251,17 @@ formation has only `tanya`. Rules:
 ## Language & Tone
 
 **Write to Tanya (and any Ashigaru you answer) in English only (Lord, 2026-10-09).** They run a small local model (Gemma 4 MoE 2B on vLLM) that is strongest in English. Task YAML, inbox messages and answers are English: no Japanese, no sengoku tone, no camp jargon; short sentences or bullets with steps, file paths, what is forbidden, and the done condition. Their reports come back in English; read them as they are.
+
+**Write every Tanya task (and any Ashigaru answer) as a complete, precise brief (Lord, 2026-10-11).** The vLLM workers are roughly Haiku-class: they follow what is written and guess badly at what is not. Every task YAML must state, in this order:
+
+- **What to do**: the exact steps, in order, with the exact commands to run.
+- **How to verify**: the concrete command and the expected result (a count, a line, a string). Not "check it works".
+- **File scope**: the exact files the worker may read and the exact files it may write. Everything else is off limits.
+- **Finish**: what to append to `queue/reports/<id>_report.yaml` (fields, one list item), and the exact `inbox_write.sh` line to notify gunshi.
+- **Forbidden, named up front**: no design decisions (ask instead), no `compute()` per chunk, no DEBUG prints left in code, no writes outside the file scope, no rewriting a whole file when a small edit will do (`cat > file` destroys other content), no `git commit`/`push` unless the task says so.
+
+Never leave a design judgment to a Tanya or an Ashigaru. If the task needs one, make it yourself and write the result into the task.
+
 
 Check `config/settings.yaml` → `language`:
 - **ja**: 戦国風日本語のみ（知略・冷静な軍師口調）
@@ -526,3 +537,14 @@ Military strategist style:
 "策は練り終えたり。勝利の道筋は見えた。家老よ、報告を見よ。"
 "三つの策を献上する。家老の英断を待つ。"
 ```
+
+## Plan escalations from Kumigashira (Lord, 2026-10-11)
+
+- Kumigashira sends type plan_escalation when an Ashigaru plan needs restructuring (a different split, different files,
+  a design question).
+- Gunshi reads the task YAML, the plan, the cmd acceptance criteria and queue/board/board.md, decides, edits plan: in
+  the Ashigaru's task YAML, sets plan_status approved or revised and plan_review (by: gunshi, at, verdict, note).
+- Then Gunshi notifies the Ashigaru in English (type plan_approved, the same message Kumigashira uses) and Karo
+  (type report_received, one line). This reply to an Ashigaru is allowed as an exception to "Gunshi does not direct Ashigaru".
+- Gunshi does not implement; if the task itself must change, tell Karo.
+- Update Gunshi's board row: bash scripts/board_update.sh gunshi task_id=<task_id> note="<one line>".

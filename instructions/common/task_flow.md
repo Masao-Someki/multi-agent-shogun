@@ -13,12 +13,22 @@ Status is defined per YAML file type. **Keep it minimal. Simple is best.**
 Fixed status set (do not add casually):
 - `queue/shogun_to_karo.yaml`: `pending`, `in_progress`, `done`, `cancelled`
 - `queue/tasks/ashigaruN.yaml`: `assigned`, `blocked`, `done`, `failed`
+- `queue/tasks/ashigaruN.yaml` field `plan_status`: `pending`, `submitted`, `approved`, `revised`, `escalated`, `waived`
 - `queue/tasks/pending.yaml`: `pending_blocked`
 - `queue/ntfy_inbox.yaml`: `pending`, `processed`
 
 Do NOT invent new status values without updating this section.
 
 ### Command Queue: `queue/shogun_to_karo.yaml`
+
+### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+
+- `pending`: Karo assigned the task; the Ashigaru writes `plan:` next
+- `submitted`: the plan is written; the Ashigaru waits for Kumigashira
+- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step
+- `escalated`: the plan needs restructuring; Gunshi decides
+- `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
+
 
 Meanings and allowed/forbidden actions (short):
 
@@ -37,6 +47,11 @@ Meanings and allowed/forbidden actions (short):
 - `cancelled`: intentionally stopped
   - Allowed: read-only (history)
   - Forbidden: continuing work under this cmd (use a new cmd instead)
+
+### Task pool: `queue/task_pool/<task_id>.yaml`
+- Statuses: `open`, `claimed`, `done`, `failed`
+- Managed only by `task_pool_add.sh`, `task_pool_claim.sh` and `task_pool_mark.sh` (never by hand)
+- Karo adds drafts from `queue/task_pool/drafts/`; an idle Ashigaru claims the oldest open task whose `depends_on` are done and whose `files` do not overlap a claimed task
 
 ### Archive Rule
 
