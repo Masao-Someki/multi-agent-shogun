@@ -14,6 +14,7 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent
+PROXY_PORT = int(os.environ.get('SHOGUN_PROXY_PORT', '33987'))
 
 
 def commands():
@@ -29,7 +30,7 @@ def commands():
                   '--async-scheduling', '--cudagraph-capture-sizes', '1',
                   '--tool-server', '127.0.0.1:8765'],
         'proxy': [sys.executable, str(ROOT / 'responses-proxy/proxy.py'),
-                  '--upstream', 'http://127.0.0.1:8000'],
+                  '--upstream', 'http://127.0.0.1:8000', '--port', str(PROXY_PORT)],
     }
 
 
@@ -42,7 +43,7 @@ def port_open(port):
 
 
 def ready(name):
-    port = {'browser': 8765, 'model': 8000, 'proxy': 8003}[name]
+    port = {'browser': 8765, 'model': 8000, 'proxy': PROXY_PORT}[name]
     headers = {}
     if name != 'browser' and os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
@@ -108,7 +109,7 @@ def main():
                 raise RuntimeError(f'{name} exited ({process.returncode}); see {state}/{name}.log')
 
     try:
-        for name, port in [('browser', 8765), ('model', 8000), ('proxy', 8003)]:
+        for name, port in [('browser', 8765), ('model', 8000), ('proxy', PROXY_PORT)]:
             if ready(name):
                 print(f'Adopting ready {name} on localhost:{port}; ownership remains external.', flush=True)
                 continue
@@ -131,7 +132,7 @@ def main():
                     raise RuntimeError(f'{name} readiness timed out; see {state}/{name}.log')
                 time.sleep(1)
             print(f'Ready {name} on localhost:{port}', flush=True)
-        print('Stack ready; worker URL http://127.0.0.1:8003/v1', flush=True)
+        print(f'Stack ready; worker URL http://127.0.0.1:{PROXY_PORT}/v1', flush=True)
         while not stopped:
             check_children()
             for name in plan:

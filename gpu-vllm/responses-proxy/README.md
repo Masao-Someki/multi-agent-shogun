@@ -5,7 +5,7 @@ the conflicting Codex Apps search function from model-visible tool declarations.
 The installed aiohttp dependency is used; no dependency installation is required.
 
 ```text
-Codex → SSH/API → proxy :8003 → vLLM :8000 → browser MCP :8765 → Web
+Codex → SSH/API → proxy :33987 → vLLM :8000 → browser MCP :8765 → Web
 ```
 
 Start on the same Babel node as vLLM:
@@ -15,7 +15,7 @@ Start on the same Babel node as vLLM:
 ```
 
 The default upstream is `http://127.0.0.1:8000`. The proxy listens only on
-`127.0.0.1:8003`. It forwards the incoming Authorization header; it neither
+`127.0.0.1:33987`. It forwards the incoming Authorization header; it neither
 stores nor substitutes an API key. vLLM must already have its browser MCP
 registered. No extra model instance is started.
 
@@ -28,7 +28,7 @@ sshpass -f .babel_pass ssh -tt \
   msomeki@login.babel.cs.cmu.edu \
   'ssh -N \
     -o ExitOnForwardFailure=yes \
-    -L 127.0.0.1:38003:127.0.0.1:8003 \
+    -L 127.0.0.1:38003:127.0.0.1:33987 \
     babel-m5-28'
 ```
 

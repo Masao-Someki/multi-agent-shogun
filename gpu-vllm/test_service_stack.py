@@ -115,7 +115,7 @@ class LifecycleTests(unittest.TestCase):
             env={**os.environ, 'BABEL_SSH_LOGIN': 'user@login.babel.cs.cmu.edu',
                  'BABEL_SSH_USER': 'user'}, check=True)
         args = result.stdout.splitlines()
-        self.assertIn('127.0.0.1:32424:127.0.0.1:8003', args)
+        self.assertIn('127.0.0.1:32424:127.0.0.1:33987', args)
         self.assertIn('user@login.babel.cs.cmu.edu', args)
         self.assertEqual(args[-1], 'user@babel-m5-28')
         self.assertNotIn('8765', result.stdout)
