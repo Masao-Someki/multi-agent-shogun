@@ -161,6 +161,12 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers['Authorization'], 'Bearer test-secret')
         self.assertEqual({k.lower(): v for k, v in headers.items()}['x-request-id'], 'client-id')
 
+    async def test_health_check_does_not_require_vllm_upstream(self):
+        r = await self.client.get('/healthz')
+        self.assertEqual(r.status, 200)
+        self.assertEqual(await r.json(), {'status': 'ok'})
+        self.assertEqual(self.received, [])
+
     async def test_sse_bytes_ids_and_incremental_delivery(self):
         r = await self.client.post('/v1/responses', json={'input': 'x'}, headers={'X-Test-Mode': 'sse'})
         first = await r.content.readexactly(len(self.fragments[0]))

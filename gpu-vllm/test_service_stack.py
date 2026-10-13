@@ -77,6 +77,33 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(command[command.index('--tool-server') + 1], '127.0.0.1:8765')
         self.assertNotIn('--api-key', command)
 
+    def test_background_sidecars_start_without_starting_model(self):
+        process = Mock()
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'VLLM_STATE_DIR': directory}), \
+             patch('sys.argv', ['service_stack.py', '--start-sidecars']), \
+             patch.object(stack, 'ensure_patch') as compatibility, \
+             patch.object(stack, 'ready', side_effect=[False, True, False, True]) as readiness, \
+             patch.object(stack, 'port_open', return_value=False), \
+             patch.object(stack.subprocess, 'Popen', return_value=process) as spawn, \
+             patch.object(stack.time, 'sleep'):
+            stack.main()
+        self.assertEqual(spawn.call_count, 2)
+        self.assertEqual([call.args[0] for call in spawn.call_args_list],
+                         [stack.commands()['browser'], stack.commands()['proxy']])
+        self.assertTrue(all(call.kwargs['start_new_session']
+                            for call in spawn.call_args_list))
+        compatibility.assert_called_once_with()
+        self.assertEqual(readiness.call_count, 4)
+
+    def test_shell_start_runs_sidecars_before_foreground_model(self):
+        script = stack.ROOT / 'start-vllm.sh'
+        content = script.read_text()
+        self.assertLess(content.index('--start-sidecars'), content.index('exec "$vllm_bin" serve'))
+        self.assertIn('openai/gpt-oss-120b', content)
+        self.assertIn('--tool-server 127.0.0.1:8765', content)
+
     def test_dry_run_needs_no_key_or_gpu(self):
         with patch.dict(os.environ, {'VLLM_API_KEY': ''}), \
              patch('sys.argv', ['service_stack.py', '--dry-run']), \
