@@ -29,11 +29,20 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
   <img src="images/company-creed-all-panes.png" alt="Karo and Ashigaru panes reacting in parallel" width="520">
 </p>
 
-<p align="center"><i>One Karo (manager) coordinating 7 Ashigaru (workers) + 1 Gunshi (strategist) — real session, no mock data.</i></p>
+<p align="center"><i>Seven roles: Karo, three Ashigaru, Metsuke, Gunshi and Tanya.</i></p>
 
 ---
 
 ## Quick Start
+
+This fork defaults to **one Karo, three Ashigaru, one Metsuke, one Gunshi and
+one Tanya** (seven agents). Speak directly to Karo in `multiagent`; no Shogun or
+Kumigashira is launched. Models: Codex gpt-6-luna medium (Karo), Babel
+GPT-OSS-120B medium (Ashigaru/Tanya), Claude Opus medium (Metsuke), Fable high (Gunshi).
+Existing worker/strategist and Gunshi/Tanya communication is preserved.
+See the [Babel setup guide](docs/babel-gptoss.md) for secrets, tunnels and startup.
+Historical Shogun diagrams/screenshots below describe legacy configurations,
+not this fork's default formation.
 
 **Requirements:** tmux, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode / Antigravity
 
@@ -48,11 +57,12 @@ bash shutsujin_departure.sh                # launch all agents
 
 > For full install steps (incl. Windows) and the first-30-minutes walkthrough, see [🚀 Quick Start](#-quick-start) and the basic usage section below.
 
-Type a command in the Shogun pane:
+Type a command in the Karo pane (`tmux attach-session -t multiagent`):
 
 > "Build a REST API for user authentication"
 
-Shogun delegates → Karo breaks it down → 7 Ashigaru execute in parallel.
+Karo receives and decomposes → 3 Ashigaru execute → Metsuke checks quality.
+Karo consults Gunshi when strategic judgment is needed; Gunshi delegates research to Tanya.
 You watch the dashboard. That's it.
 
 > **Want to go deeper?** The rest of this README covers architecture, configuration, memory design, and multi-CLI setup.

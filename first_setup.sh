@@ -646,6 +646,18 @@ logging:
   level: info  # debug | info | warn | error
   path: "$SCRIPT_DIR/logs/"
 EOF
+    # Preserve personal paths above; seed the same seven-agent default used at launch.
+    "$SCRIPT_DIR/.venv/bin/python3" - "$SCRIPT_DIR/config/settings.yaml" "$SCRIPT_DIR/config/model_profiles/default.yaml" <<'PYEOF'
+import sys
+from pathlib import Path
+import yaml
+settings_path, profile_path = map(Path, sys.argv[1:])
+settings = yaml.safe_load(settings_path.read_text()) or {}
+profile = yaml.safe_load(profile_path.read_text()) or {}
+settings['cli'] = profile['cli']
+settings['formation'] = profile['formation']
+settings_path.write_text(yaml.safe_dump(settings, allow_unicode=True, sort_keys=False))
+PYEOF
     log_success "settings.yaml を作成しました"
 else
     log_info "config/settings.yaml は既に存在します"
@@ -718,15 +730,15 @@ try:
         cfg = yaml.safe_load(f) or {}
     agents = cfg.get('cli', {}).get('agents', {})
     count = len([k for k in agents if k.startswith('ashigaru')])
-    print(count if count > 0 else 7)
+    print(count if count > 0 else 3)
 except Exception:
-    print(7)
+    print(3)
 " 2>/dev/null
     else
-        echo 7
+        echo 3
     fi
 )
-_SETUP_ASHIGARU_COUNT=${_SETUP_ASHIGARU_COUNT:-7}
+_SETUP_ASHIGARU_COUNT=${_SETUP_ASHIGARU_COUNT:-3}
 
 # 足軽用タスクファイル作成
 for i in $(seq 1 "$_SETUP_ASHIGARU_COUNT"); do
@@ -804,7 +816,7 @@ BASHRC_FILE="$HOME/.bashrc"
 # - 複数端末から接続しても画面サイズが干渉しない
 # - SSH切断・アプリ終了時に一時セッションが自動消滅
 # - 本体セッション (shogun/multiagent) は絶対に消えない
-CSS_FUNC='css() { local s="shogun-$$"; local cols=$(tput cols 2>/dev/null || echo 80); tmux new-session -d -t shogun -s "$s" 2>/dev/null && tmux set-option -t "$s" destroy-unattached on 2>/dev/null; if [ "$cols" -lt 80 ]; then tmux new-window -t "$s" -n mobile 2>/dev/null; tmux attach-session -t "$s:mobile" 2>/dev/null || tmux attach-session -t shogun; else tmux attach-session -t "$s" 2>/dev/null || tmux attach-session -t shogun; fi; }'
+CSS_FUNC='css() { tmux select-pane -t "multiagent:agents.$(tmux show-options -gv pane-base-index)" 2>/dev/null; tmux attach-session -t multiagent; }'
 CSM_FUNC='csm() { local s="multi-$$"; local cols=$(tput cols 2>/dev/null || echo 80); tmux new-session -d -t multiagent -s "$s" 2>/dev/null && tmux set-option -t "$s" destroy-unattached on 2>/dev/null; if [ "$cols" -lt 80 ]; then tmux new-window -t "$s" -n mobile 2>/dev/null; tmux attach-session -t "$s:mobile" 2>/dev/null || tmux attach-session -t multiagent; else tmux attach-session -t "$s" 2>/dev/null || tmux attach-session -t multiagent; fi; }'
 DASH_FUNC="dash() { python3 \"$SCRIPT_DIR/scripts/dashboard-viewer.py\" \"\$@\"; }"
 

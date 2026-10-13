@@ -1,10 +1,17 @@
 # Task Flow
 
-## Workflow: Shogun → Karo → Ashigaru
+## Workflow: Lord → Karo → Ashigaru / Metsuke / Gunshi
 
 ```
-Lord: command → Shogun: write YAML → inbox_write → Karo: decompose → inbox_write → Ashigaru: execute → report YAML → inbox_write → Karo: update dashboard → Shogun: read dashboard
+Lord: direct command → Karo: record cmd YAML, decompose → inbox_write → Ashigaru: execute → report YAML → Metsuke: QC (Gunshi escalation) → Karo: update dashboard and reply to Lord
 ```
+
+Default formation: Karo, Ashigaru 1–3, Metsuke, Tanya, Gunshi (seven panes).
+Karo consults Gunshi when strategic judgment is needed; Tanya remains Gunshi's
+bounded research assistant. Existing Ashigaru/Gunshi communication remains available.
+`queue/shogun_to_karo.yaml` and its archive retain their legacy names, but Karo
+now writes human requests there with the required cmd fields before dispatch.
+An explicit legacy profile may still enable Shogun; it is not a default dependency.
 
 ## Status Reference (Single Source)
 
@@ -21,10 +28,13 @@ Do NOT invent new status values without updating this section.
 
 ### Command Queue: `queue/shogun_to_karo.yaml`
 
-### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+### Optional plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+
+The seven-role default has no Kumigashira and does not use the plan gate. Set
+`plan_gate: true` only when an explicitly selected profile enables Kumigashira.
 
 - `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step (using `task_start.sh <N>`)
-- `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
+- `waived`: no gate is active for this task/profile
 
 
 Meanings and allowed/forbidden actions (short):
@@ -115,23 +125,23 @@ Note:
 ### NTFY Inbox (Lord phone): `queue/ntfy_inbox.yaml`
 
 - `pending`: needs processing
-  - Allowed: Shogun processes and sets `processed`
+  - Allowed: Karo processes and sets `processed` (Shogun only in an explicit legacy formation)
   - Forbidden: leaving it pending without reason
 
 - `processed`: processed; keep record
   - Allowed: read-only
   - Forbidden: flipping back to pending without creating a new entry
 
-## Immediate Delegation Principle (Shogun)
+## Immediate Delegation Principle (Karo)
 
-**Delegate to Karo immediately and end your turn** so the Lord can input next command.
+**Record and dispatch promptly, then end your turn** so the Lord can input the next command.
 
 ```
-Lord: command → Shogun: write YAML → inbox_write → END TURN
+Lord: command → Karo: write cmd/task YAML → inbox_write → END TURN
                                         ↓
                                   Lord: can input next
                                         ↓
-                              Karo/Ashigaru: work in background
+                              Ashigaru/Metsuke/Gunshi: work in background
                                         ↓
                               dashboard.md updated as report
 ```
@@ -150,7 +160,7 @@ Step 9: Ashigaru completes → inbox_write karo → watcher nudges karo
 
 **Why no background monitor**: inbox_watcher.sh detects ashigaru's inbox_write to karo and sends a nudge. This is true event-driven. No sleep, no polling, no CPU waste.
 
-**Karo wakes via**: inbox nudge from ashigaru report, shogun new cmd, or system event. Nothing else.
+**Karo wakes via**: direct human input, QC/strategy inbox reports, ntfy input, or system events. No polling.
 
 ## "Wake = Full Scan" Pattern
 

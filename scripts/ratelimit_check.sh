@@ -27,6 +27,7 @@ done
 # ─── Load shared libraries ───
 source "$SCRIPT_DIR/lib/agent_status.sh"
 source "$SCRIPT_DIR/lib/cli_adapter.sh"
+source "$SCRIPT_DIR/lib/agent_registry.sh"
 
 PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
 
@@ -40,22 +41,8 @@ CODEX_CONTEXT_WARN=20
 CODEX_CONTEXT_CRIT=10
 CODEX_LIMIT_HITS_WARN=3
 
-# ─── Agent list (dynamic from settings.yaml) ───
-_ashigaru_ids_str=$(get_ashigaru_ids 2>/dev/null || echo "ashigaru1 ashigaru2 ashigaru3")
-ALL_AGENTS=("shogun" "karo")
-for _aid in $_ashigaru_ids_str; do ALL_AGENTS+=("$_aid"); done
-ALL_AGENTS+=("gunshi")
-ALL_AGENTS+=("metsuke")
-ALL_AGENTS+=("kumigashira")
-
-# Tanya ids follow the formation: tanya alone, or tanya and tanya2 (vllm-workers profile).
-_tanya_ids_str="tanya"
-if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then
-    # shellcheck source=lib/agent_registry.sh
-    source "$SCRIPT_DIR/lib/agent_registry.sh"
-    _tanya_ids_str=$(agent_registry_agents | grep -E '^tanya[0-9]*$' | tr '\n' ' ')
-fi
-for _tid in $_tanya_ids_str; do ALL_AGENTS+=("$_tid"); done
+# ─── Agent list from the active formation ───
+mapfile -t ALL_AGENTS < <(agent_registry_agents)
 
 # ═══════════════════════════════════════════════════════
 # Phase 1: Scan all tmux panes for metadata

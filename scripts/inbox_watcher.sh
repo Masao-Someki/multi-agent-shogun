@@ -531,6 +531,12 @@ send_cli_command() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
+    # Human command panes must never receive resets or CLI restarts.
+    if [[ "$AGENT_ID" == "karo" || "$AGENT_ID" == "shogun" ]]; then
+        echo "[$(date)] [SKIP] $AGENT_ID: suppressing CLI command injection ($cmd)" >&2
+        return 1
+    fi
+
     # cli_restart: delegate to switch_cli.sh (full /exit → relaunch cycle)
     if [[ "$cmd" == __CLI_RESTART__:* ]]; then
         local restart_args="${cmd#__CLI_RESTART__:}"
@@ -541,13 +547,6 @@ send_cli_command() {
         # Update effective CLI type after restart
         CLI_TYPE=$(tmux show-options -p -t "$PANE_TARGET" -v @agent_cli 2>/dev/null || echo "$CLI_TYPE")
         return 0
-    fi
-
-    # Safety: never inject CLI commands into the shogun pane.
-    # Shogun is controlled by the Lord; keystroke injection can clobber human input.
-    if [ "$AGENT_ID" = "shogun" ]; then
-        echo "[$(date)] [SKIP] shogun: suppressing CLI command injection ($cmd)" >&2
-        return 1
     fi
 
     # Busy guard: never send /clear when agent is actively processing.
@@ -1056,9 +1055,9 @@ send_wakeup_with_escape() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
-    # Safety: never send Escape escalation to shogun. It can wipe the Lord's input.
-    if [ "$AGENT_ID" = "shogun" ]; then
-        echo "[$(date)] [SKIP] shogun: suppressing Escape escalation; sending plain nudge" >&2
+    # Human command panes must not lose partially typed input to Escape escalation.
+    if [[ "$AGENT_ID" == "shogun" || "$AGENT_ID" == "karo" ]]; then
+        echo "[$(date)] [SKIP] $AGENT_ID: suppressing Escape escalation; sending plain nudge" >&2
         send_wakeup "$unread_count"
         return 0
     fi
@@ -1144,7 +1143,7 @@ process_unread() {
         touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
         if ! agent_is_busy; then
             # Shogun: only clear input when pane is not active (Lord is away)
-            if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
+            if [[ "$AGENT_ID" == "shogun" || "$AGENT_ID" == "karo" ]]; then
                 : # Lord may be typing — skip C-u
             else
                 timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
@@ -1359,7 +1358,7 @@ for s in data.get('specials', []):
         # Only send C-u when agent is idle — during Working it would be disruptive.
         if ! agent_is_busy; then
             # Shogun: only clear input when pane is not active (Lord is away)
-            if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
+            if [[ "$AGENT_ID" == "shogun" || "$AGENT_ID" == "karo" ]]; then
                 : # Lord may be typing — skip C-u
             else
                 timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true

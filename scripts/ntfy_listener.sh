@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
 # ntfy Input Listener
-# Streams messages from ntfy topic, writes to inbox YAML, wakes shogun.
+# Streams ntfy messages to the configured human command agent (normally Karo).
 # NOT polling — uses ntfy's streaming endpoint (long-lived HTTP connection).
 # FR-066: ntfy認証対応 (Bearer token / Basic auth)
 # ═══════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SETTINGS="$SCRIPT_DIR/config/settings.yaml"
+SETTINGS="${SHOGUN_SETTINGS_FILE:-${AGENT_REGISTRY_SETTINGS:-$SCRIPT_DIR/config/settings.yaml}}"
+NTFY_TARGET="karo"
+if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then
+    AGENT_REGISTRY_SETTINGS="$SETTINGS"
+    source "$SCRIPT_DIR/lib/agent_registry.sh"
+    if agent_registry_agents | grep -Fxq shogun; then
+        NTFY_TARGET="shogun"
+    fi
+fi
 TOPIC=$(grep 'ntfy_topic:' "$SETTINGS" | awk '{print $2}' | tr -d '"')
 INBOX="$SCRIPT_DIR/queue/ntfy_inbox.yaml"
 LOCKFILE="${INBOX}.lock"
@@ -165,10 +173,10 @@ while true; do
             continue
         fi
 
-        # Auto-reply removed — shogun replies directly after processing.
+        # The human command agent replies directly after processing.
 
-        # Wake shogun via inbox (ntfy処理は将軍が直接受信)
-        bash "$SCRIPT_DIR/scripts/inbox_write.sh" shogun \
+        # Preserve explicit legacy Shogun formations; default delivery is Karo.
+        bash "$SCRIPT_DIR/scripts/inbox_write.sh" "$NTFY_TARGET" \
             "ntfyから新しいメッセージ受信。queue/ntfy_inbox.yaml を確認し処理せよ。" \
             ntfy_received ntfy_listener
     done

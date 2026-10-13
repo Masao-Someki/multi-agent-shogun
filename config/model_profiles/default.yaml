@@ -1,0 +1,21 @@
+# Human talks directly to Karo. Babel workers use the Codex Responses API.
+cli:
+  default: claude
+  agents:
+    karo: {type: codex, model: gpt-6-luna, effort: medium}
+    gunshi: {type: claude, model: claude-fable-5-1, effort: high}
+    metsuke: {type: claude, model: opus, effort: medium}
+    ashigaru1: &babel_worker
+      type: codex
+      model: shogun-worker
+      effort: medium
+      provider: babel
+      base_url_env: SHOGUN_VLLM_BASE_URL
+      base_url: http://127.0.0.1:8003/v1
+      api_key_env: SHOGUN_VLLM_API_KEY
+    ashigaru2: *babel_worker
+    ashigaru3: *babel_worker
+    tanya: *babel_worker
+formation:
+  agents: [karo, ashigaru1, ashigaru2, ashigaru3, metsuke, tanya, gunshi]
+  ashigaru_count: 3

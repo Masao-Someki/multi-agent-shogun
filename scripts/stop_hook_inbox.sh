@@ -68,6 +68,10 @@ if [ "$STOP_HOOK_ACTIVE" = "True" ]; then
         # inbox_watcher will re-deliver a fresh nudge via the idle flag.
         exit 0
     fi
+    # Karo is also the human conversation pane. Return its prompt immediately.
+    if [ "$AGENT_ID" = "karo" ]; then
+        exit 0
+    fi
     # UNREAD=0: agent processed its inbox. Wait for new incoming messages.
     # stop_hook_active=True 時も inotifywait 待機（連続処理ループ対応）
     # タイムアウト(55秒)でexit 0 → ループは有限回で終了
@@ -108,7 +112,7 @@ if [ -n "$LAST_MSG" ]; then
 
     # Send notification to karo (background, non-blocking)
     # Shogun doesn't report to karo — skip notification
-    if [ -n "$NOTIFY_TYPE" ] && [ "$AGENT_ID" != "shogun" ]; then
+    if [ -n "$NOTIFY_TYPE" ] && [ "$AGENT_ID" != "shogun" ] && [ "$AGENT_ID" != "karo" ]; then
         bash "$SCRIPT_DIR/scripts/inbox_write.sh" karo \
             "$NOTIFY_CONTENT" \
             "$NOTIFY_TYPE" "$AGENT_ID" &
@@ -128,6 +132,9 @@ UNREAD_COUNT=$(grep -c 'read: false' "$INBOX" 2>/dev/null || true)
 FLAG="${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}"
 if [ "${UNREAD_COUNT:-0}" -eq 0 ]; then
     touch "$FLAG"
+    if [ "$AGENT_ID" = "karo" ]; then
+        exit 0
+    fi
     # inotifywait で inbox 変更を最大55秒待機
     # dashboard.md も監視（shogunの場合のみ）
     WATCH_TARGETS=("$INBOX")
