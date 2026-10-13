@@ -10,8 +10,8 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 
 Examples:
 ```bash
-# Shogun → Karo
-bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
+# Human → Karo
+# Record direct TUI/ntfy requests in queue/shogun_to_karo.yaml (legacy filename).
 
 # Ashigaru → Karo
 bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
@@ -34,9 +34,8 @@ Two layers:
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
 **Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
 
-Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
-- Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
+Safety note (Karo):
+- Karo is the human-facing pane. `inbox_watcher.sh` must not inject messages or escalation keystrokes into Karo while the Lord is typing.
 
 Special cases (CLI commands sent via `tmux send-keys`):
 - `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
@@ -99,7 +98,7 @@ Race condition is eliminated: context reset wipes old context. Agent re-reads YA
 | Direction | Method | Reason |
 |-----------|--------|--------|
 | Ashigaru/Gunshi → Karo | Report YAML + inbox_write | File-based notification |
-| Karo → Shogun/Lord | dashboard.md update only | **inbox to shogun FORBIDDEN** — prevents interrupting Lord's input |
+| Karo → Lord | Direct TUI reply + dashboard.md update | Karo is the human-facing entry point |
 | Karo → Gunshi | YAML + inbox_write | Strategic task delegation |
 | Top → Down | YAML + inbox_write | Standard wake-up |
 

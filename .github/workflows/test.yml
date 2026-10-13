@@ -85,6 +85,11 @@ jobs:
             exit 1
           }
 
+      - name: Run offline default formation and Babel startup regressions
+        run: |
+          .venv/bin/python -m unittest discover -s tests/unit -p 'test_*.py' -v
+          .venv/bin/python gpu-vllm/test_service_stack.py
+
       - name: Verify zero unexpected SKIPs (SKIP=FAIL policy)
         run: |
           SKIP_COUNT=0

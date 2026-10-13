@@ -1,0 +1,5 @@
+{
+  "cached":{"web_tools":[{"type":"web_search","external_web_access":false}],"functions":["exec_command"],"namespaces":["multi_agent_v1"]},
+  "live":{"web_tools":[{"type":"web_search","external_web_access":true}],"functions":["exec_command"],"namespaces":["multi_agent_v1"]},
+  "disabled":{"web_tools":[],"functions":["exec_command"],"namespaces":["multi_agent_v1"]}
+}

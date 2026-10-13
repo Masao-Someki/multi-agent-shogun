@@ -24,6 +24,7 @@ setup() {
     export ACK_LOG="$TEST_TMPDIR/ack.log"
     export INBOX_LOG="$TEST_TMPDIR/inbox.log"
     export MOCK_CURL_OUTPUT="$TEST_TMPDIR/curl_output.json"
+    export SHOGUN_SETTINGS_FILE="$MOCK_PROJECT/config/settings.yaml"
 
     # モックプロジェクト構築
     mkdir -p "$MOCK_PROJECT"/{config,lib,scripts,queue,logs/ntfy_inbox_corrupt}
@@ -111,7 +112,7 @@ run_listener() {
 # T-ACK-001: Normal message triggers inbox_write to shogun (ACK removed, shogun replies directly)
 # ═══════════════════════════════════════════════════════════════
 
-@test "T-ACK-001: Normal message triggers inbox_write to shogun" {
+@test "T-ACK-001: Normal message triggers inbox_write to karo" {
     cat > "$MOCK_CURL_OUTPUT" << 'JSON'
 {"event":"message","id":"msg001","time":1234567890,"message":"テスト通知","tags":[]}
 JSON
@@ -119,7 +120,7 @@ JSON
     # Auto-ACK removed — shogun replies directly after processing.
     # Verify inbox_write to shogun was called instead.
     [ -s "$INBOX_LOG" ]
-    grep -q "shogun" "$INBOX_LOG"
+    grep -q "karo" "$INBOX_LOG"
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -160,7 +161,7 @@ JSON
 JSON
     run_listener
     [ -s "$INBOX_LOG" ]
-    grep -q "shogun" "$INBOX_LOG"
+    grep -q "karo" "$INBOX_LOG"
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -220,5 +221,5 @@ JSON
     # Auto-ACK removed — verify inbox_write still fires for special characters
     [ ! -s "$ACK_LOG" ]
     [ -s "$INBOX_LOG" ]
-    grep -q "shogun" "$INBOX_LOG"
+    grep -q "karo" "$INBOX_LOG"
 }

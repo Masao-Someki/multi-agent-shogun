@@ -29,11 +29,19 @@
   <img src="images/company-creed-all-panes.png" alt="家老と足軽が全ペインで並列反応する様子" width="520">
 </p>
 
-<p align="center"><i>家老1体が足軽7体+軍師1体を統率 — 実際の稼働画面、モックデータなし</i></p>
+<p align="center"><i>家老・足軽3・目付・軍師・ターニャの7役編成</i></p>
 
 ---
 
 ## クイックスタート
+
+このフォークのデフォルトは **家老1・足軽3・目付1・軍師1・ターニャ1**（計7役）です。
+将軍・組頭は起動せず、人間が `multiagent` の家老ペインへ直接指示します。
+家老は Codex gpt-6-luna medium、足軽とターニャは Babel の GPT-OSS-120B medium、
+目付は Claude Opus medium、軍師は Fable high です。
+軍師への相談、足軽→目付のQC、軍師→ターニャの関係は維持します。
+接続・環境変数・起動手順は [Babel構成ガイド](docs/babel-gptoss.md) を参照してください。
+以下の旧来の将軍構成の図や画面は参考資料であり、既定構成ではありません。
 
 **必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode
 
@@ -48,11 +56,11 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 > 詳しいインストール手順（Windows含む）と「最初の30分の歩き方」は下記 [🚀 クイックスタート](#-クイックスタート) と [📖 基本的な使い方](#-基本的な使い方) を参照。
 
-将軍ペインに命令を入力：
+家老ペインに命令を入力（`tmux attach-session -t multiagent`）：
 
 > 「ユーザー認証の REST API を作って」
 
-将軍が委譲 → 家老が分解 → 足軽7体が並列実行。
+家老が受付・分解 → 足軽3体が並列実行 → 目付がQC。必要に応じて軍師に相談します。
 あとはダッシュボードを眺めるだけ。
 
 > **もっと詳しく知りたい方へ:** 以降のセクションでアーキテクチャ・設定・メモリ設計・Multi-CLI対応を解説しています。

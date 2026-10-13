@@ -15,13 +15,11 @@ AGENT_REGISTRY_SETTINGS="${AGENT_REGISTRY_SETTINGS:-${SHOGUN_SETTINGS_FILE:-${AG
 
 agent_registry_default_agents() {
     printf '%s\n' \
-        shogun \
         karo \
         ashigaru1 \
         ashigaru2 \
         ashigaru3 \
         metsuke \
-        kumigashira \
         tanya \
         gunshi
 }
@@ -146,9 +144,6 @@ agent_registry_agents() {
         return 0
     fi
 
-    if ! agent_registry_has_agent "shogun" "${parsed[@]}"; then
-        parsed=(shogun "${parsed[@]}")
-    fi
     printf '%s\n' "${parsed[@]}" | agent_registry_emit_canonical_order
 }
 

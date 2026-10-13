@@ -2,22 +2,21 @@
 # multi-agent-shogun System Configuration
 version: "3.0"
 updated: "2026-02-07"
-description: "GitHub Copilot CLI + tmux multi-agent parallel dev platform with sengoku military hierarchy"
+description: "Codex/GitHub Copilot CLI + tmux multi-agent parallel development platform"
 
-hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-3 (1-10 with --model-profile vllm-workers) / Gunshi / Metsuke / Kumigashira; Gunshi → Tanya (and tanya2 in the vllm formation)"
+hierarchy: "Lord (human) → Karo → Ashigaru 1-3 / Metsuke / Gunshi; Gunshi → Tanya"
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 tmux_sessions:
-  shogun: { pane_0: shogun }
-  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: kumigashira, pane_6: tanya, pane_7: gunshi }   # Claude formation (default)
-  multiagent_vllm: { pane_0: karo, pane_1-10: ashigaru1-10, pane_11: metsuke, pane_12: kumigashira, pane_13: tanya, pane_14: tanya2, pane_15: gunshi }   # --model-profile vllm-workers
+  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }
+  optional_profiles: "Explicit legacy/model profiles may add agents; the default has seven roles and no Shogun or Kumigashira."
   pane_lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'   # the pane numbers above follow the formation; look them up, never assume"
 
 files:
   config: config/projects.yaml          # Project list (summary)
   projects: "projects/<id>.yaml"        # Project details (git-ignored, contains secrets)
   context: "context/{project}.md"       # Project-specific notes for ashigaru/gunshi
-  cmd_queue: queue/shogun_to_karo.yaml  # Shogun → Karo commands
+  cmd_queue: queue/shogun_to_karo.yaml  # Legacy filename; Karo records direct human commands
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
   task_pool: "queue/task_pool/<task_id>.yaml" # Karo's split tasks; ashigaru claim them
   gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi strategic assignments
@@ -28,10 +27,8 @@ files:
   gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi → Karo strategic reports
   metsuke_report: queue/reports/metsuke_report.yaml # Metsuke → Karo QC reports
   tanya_report: queue/reports/tanya_report.yaml # Tanya → Gunshi evidence reports
-  kumigashira_task: queue/tasks/kumigashira.yaml # Kumigashira plan-gate state
-  kumigashira_report: queue/reports/kumigashira_report.yaml # Kumigashira → Karo notes
   dashboard: dashboard.md              # Human-readable summary (secondary data)
-  daily_log: "logs/daily/YYYY-MM-DD.md" # Karo appends cmd summary on completion. Shogun reads for daily reports.
+  daily_log: "logs/daily/YYYY-MM-DD.md" # Karo appends cmd summary and reports directly to the human.
   ntfy_inbox: queue/ntfy_inbox.yaml    # Incoming ntfy messages from Lord's phone
 
 cmd_format:
@@ -75,8 +72,8 @@ language:
 **This is ONE procedure for ALL situations**: fresh start, compaction, session continuation, or any state where you see copilot-instructions.md. You cannot distinguish these cases, and you don't need to. **Always follow the same steps.**
 
 1. Identify self: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
-2. **Read `memory/MEMORY.md`** (shogun only) — persistent cross-session memory. If file missing, skip. *GitHub Copilot CLI users: this file is also auto-loaded via GitHub Copilot CLI's memory feature.*
-3. **Read your instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`, metsuke→`instructions/generated/copilot-metsuke.md`, kumigashira→`instructions/generated/copilot-kumigashira.md`, tanya and tanya2→`instructions/generated/copilot-tanya.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
+2. **Read `memory/MEMORY.md`** (Karo, or Shogun in an explicitly selected legacy profile) — persistent cross-session memory. If file missing, skip. *GitHub Copilot CLI users: this file is also auto-loaded via GitHub Copilot CLI's memory feature.*
+3. **Read your instructions file** for your current role. Karo is the human entry point in the default profile. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
 4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
 5. Review forbidden actions, then start work
 
@@ -103,7 +100,7 @@ Step 4: Start work (only if assigned=work)
 
 Forbidden after /clear (ashigaru): reading instructions/*.md (1st task), polling (F004), contacting humans directly (F002). Trust task YAML only — pre-/clear memory is gone.
 
-## /clear・compaction Recovery (karo / gunshi / metsuke / kumigashira / tanya / shogun — command-layer agents)
+## /clear・compaction Recovery (karo / gunshi / metsuke / tanya — command-layer agents)
 
 Persona・戦国口調・forbidden_actions の再確立は **SessionStart hook** (`scripts/session_start_hook.sh`, matcher=`clear`/`compact`) が自動注入する。手順詳細は hook 側を正とする。
 
@@ -201,12 +198,12 @@ Race condition is eliminated: the context reset wipes old context. Agent re-read
 | Direction | Method | Reason |
 |-----------|--------|--------|
 | Ashigaru → Metsuke (Gunshi fallback) | Report YAML + inbox_write | Completion QC & dashboard aggregation |
-| Ashigaru → Kumigashira | plan in task YAML + inbox_write (plan_submitted) | Plan gate before work |
-| Kumigashira → Gunshi | inbox_write (plan_escalation) | Plan restructuring decision |
+| Ashigaru → Kumigashira | plan in task YAML + inbox_write (plan_submitted) | Optional legacy plan gate only |
+| Kumigashira → Gunshi | inbox_write (plan_escalation) | Optional legacy plan restructuring |
 | Metsuke → Karo | Report YAML + inbox_write | PASS/FAIL/要軍師 QC result |
 | Tanya → Gunshi | Report YAML + inbox_write | Bounded evidence/research result |
 | Gunshi → Karo | Report YAML + inbox_write | Strategic reports and escalated technical judgment |
-| Karo → Shogun/Lord | dashboard.md update only | **inbox to shogun FORBIDDEN** — prevents interrupting Lord's input |
+| Karo → Lord | Direct TUI reply + dashboard.md update | Karo is the human-facing entry point |
 | Karo → Gunshi | YAML + inbox_write | Strategic task or quality check delegation |
 | Top → Down | YAML + inbox_write | Standard wake-up |
 
@@ -232,14 +229,14 @@ Layer 4: Session context — volatile (copilot-instructions.md auto-loaded, inst
 
 System manages ALL white-collar work, not just self-improvement. Project folders can be external (outside this repo). `projects/` is git-ignored (contains secrets).
 
-# Shogun Mandatory Rules
+# Karo Mandatory Rules (Human Entry Point)
 
-1. **Dashboard**: Karo + Metsuke update. Metsuke: QC results aggregation. Karo: task status/streaks/action items. Shogun reads it, never writes it.
-2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
+1. **Dashboard**: Karo + Metsuke update. Metsuke: QC results aggregation. Karo: task status/streaks/action items and direct human reports.
+2. **Chain of command**: Lord → Karo → Ashigaru/Gunshi/Metsuke; Gunshi → Tanya. The default formation has no Shogun or Kumigashira.
 3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml`, `metsuke_report.yaml`, and `gunshi_report.yaml` when waiting.
 4. **Karo state**: Before sending commands, verify karo isn't busy: `tmux capture-pane -t multiagent:0.0 -p | tail -20`
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
-6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.
+6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard; Lord approves before a design doc is created.
 7. **Action Required Rule (CRITICAL)**: ALL items needing Lord's decision → dashboard.md 🚨要対応 section. ALWAYS. Even if also written elsewhere. Forgetting = Lord gets angry.
 
 # Test Rules (all agents)
@@ -257,7 +254,7 @@ When processing large datasets (30+ items requiring individual web search, API c
 
 ```
 ① Strategy → Gunshi review → incorporate feedback
-② Execute batch1 ONLY → Shogun QC
+② Execute batch1 ONLY → Metsuke QC (Gunshi for strategic judgment) → Karo acceptance
 ③ QC NG → Stop all agents → Root cause analysis → Gunshi review
    → Fix instructions → Restore clean state → Go to ②
 ④ QC OK → Execute batch2+ (no per-batch QC needed)

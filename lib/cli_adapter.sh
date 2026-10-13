@@ -316,6 +316,8 @@ build_cli_command() {
             local agent_env_prefix
             agent_env_prefix=$(_cli_adapter_get_agent_env_prefix "$agent_id") || return 1
             cmd="codex"
+            local provider
+            provider=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.provider" "")
             if [[ "$model" == "vllm-worker" ]]; then
                 local config_value
                 local quoted_value
@@ -347,6 +349,49 @@ build_cli_command() {
                     quoted_value=$(_cli_adapter_shell_quote "$config_value")
                     cmd+=" -c $quoted_value"
                 done
+                cmd="$agent_env_prefix$cmd --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
+            elif [[ -n "$provider" ]]; then
+                local base_url base_url_env api_key_env config_value quoted_value
+                base_url=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.base_url" "")
+                base_url_env=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.base_url_env" "")
+                api_key_env=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.api_key_env" "")
+                if [[ -n "$base_url_env" ]]; then
+                    [[ "$base_url_env" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
+                    base_url="${!base_url_env:-$base_url}"
+                fi
+                if [[ ! "$provider" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ || \
+                      "$base_url" != http://* && "$base_url" != https://* ]]; then
+                    echo "[ERROR] Codex provider $provider requires a valid HTTP(S) base_url" >&2
+                    return 1
+                fi
+                local toml_base_url
+                toml_base_url=$(_cli_adapter_toml_quote "$base_url") || return 1
+                for config_value in \
+                    "model_provider=\"$provider\"" \
+                    "model_providers.${provider}.name=\"$provider\"" \
+                    "model_providers.${provider}.base_url=$toml_base_url" \
+                    "model_providers.${provider}.wire_api=\"responses\"" \
+                    "model_providers.${provider}.requires_openai_auth=false"; do
+                    quoted_value=$(_cli_adapter_shell_quote "$config_value")
+                    cmd+=" -c $quoted_value"
+                done
+                if [[ -n "$api_key_env" ]]; then
+                    [[ "$api_key_env" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
+                    config_value="model_providers.${provider}.env_key=\"$api_key_env\""
+                    quoted_value=$(_cli_adapter_shell_quote "$config_value")
+                    cmd+=" -c $quoted_value"
+                fi
+                if [[ "$provider" == "babel" ]]; then
+                    cmd+=' -c model_context_window=131072 -c model_auto_compact_token_limit=110000 -c web_search="live"'
+                fi
+                if [[ -n "$model" ]]; then
+                    cmd+=" --model $model"
+                fi
+                if [[ -n "$effort" ]]; then
+                    config_value="model_reasoning_effort=\"$effort\""
+                    quoted_value=$(_cli_adapter_shell_quote "$config_value")
+                    cmd+=" -c $quoted_value"
+                fi
                 cmd="$agent_env_prefix$cmd --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             else
                 if [[ -n "$model" ]]; then

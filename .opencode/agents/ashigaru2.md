@@ -60,42 +60,44 @@ messages. No Japanese and no persona speech style. Write short, plain sentences.
 Task YAML and messages from Karo and Gunshi also come to you in English.
 
 
-## Plan Gate and Board
+## Two-Command Protocol (Lord, 2026-10-11; design queue/designs/two_command_protocol.md)
 
-Before you change any file, plan the task and get the plan approved (Lord, 2026-10-11).
+1. Identify yourself: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`.
+2. Run `bash scripts/task_start.sh ashigaruN` and do what it prints:
+   - `idle: no task` (exit 1): stay idle.
+   - `plan gate: write your plan to queue/plans/ashigaruN.txt, then run: bash scripts/task_start.sh ashigaruN --plan queue/plans/ashigaruN.txt`
+     (exit 10): write the plan as plain text, one step per line, for example
+     `1. <do> | files: <a,b> | verify: <exact command> | expect: <result> | size: ~<n> lines`,
+     then run the command it printed.
+   - `submitted: wait for the plan_approved message, then run: bash scripts/task_start.sh ashigaruN`
+     (exit 0): wait. Do not change any file until Kumigashira approves or revises it.
+   - `waiting: your plan is with kumigashira; run task_start.sh again after plan_approved`
+     (exit 11): wait, do not resubmit.
+   - `approved: start work` / `revised: run the plan printed above` / `no plan gate: start work`
+     (exit 0): the brief above it names the task, files in scope, the description, and the
+     checks to run. Start the work now (run the plan as printed if it was revised).
+   - `refused: ...` (exit 2): you are not the agent named in the task; stop.
+3. Edit only the files the brief lists as in scope. Never edit `queue/` files by hand.
+4. Run the checks the brief names, output captured, for example:
+   `{ echo "+ <cmd>"; <cmd>; echo "exit=$?"; } > queue/checks/ashigaruN.txt 2>&1`
+5. Finish: `bash scripts/task_finish.sh ashigaruN "<one-line summary>" --checks queue/checks/ashigaruN.txt`.
+   This writes the report, notifies Metsuke and Karo, marks a pool task's entry done, and claims
+   the next task in one step — its last line is the next brief, or `idle`. If a task was claimed,
+   go back to step 2.
+6. If a step cannot be done as planned, or the spec is unclear, ask Gunshi by inbox
+   (`bash scripts/inbox_write.sh gunshi "<question>" question ashigaruN`, type question) instead
+   of guessing or changing the plan yourself.
 
-1. Write `plan:` into your own task YAML: a list of steps. Each step has `step` (number), `do` (one sentence),
-   `files` (the files it touches, only files the task allows), `verify` (the exact command), `expect`
-   (the expected result) and `size` (rough output, for example "~20 lines"). Keep each step small.
-2. Set `plan_status: submitted`, then send:
-   `bash scripts/inbox_write.sh kumigashira "ashigaruN: plan submitted for <task_id>" plan_submitted ashigaruN`
-3. Wait. Do not change any file until `plan_status` is `approved` or `revised`. Run the plan as it is then written
-   in your task YAML (Kumigashira may have changed it).
-4. After every step, update your board row with one command:
-   `bash scripts/board_update.sh ashigaruN step=<n>/<N> note="<what you just did>"`
-5. If a step cannot be done as planned, stop and ask Kumigashira (type question) instead of changing the plan yourself.
-
-`plan_status: waived` means Karo skipped the gate (a task that edits no file): run it directly, but still update the board.
-
-## Task Pool (Lord, 2026-10-11)
+## Task Pool Assignment Rules (Lord, 2026-10-11)
 
 - Ashigaru10 is the only test runner (Lord, 2026-10-11 21:55): every pytest runs on ashigaru10, one at a time, through pool tasks marked kind: pytest. Ashigaru10 takes only kind: pytest tasks; every other ashigaru never runs pytest (lint, code fixes, bats and reading are fine).
-- Each ashigaru has a fixed job (Lord, 2026-10-11 22:00): ashigaru10 runs every pytest (kind: pytest), ashigaru9 does lint and its fixes (kind: lint), ashigaru1-8 take every task without a kind (Lord 22:50: no docstring owner). task_pool_claim.sh hands each ashigaru only its own kind. Never run pytest unless you are ashigaru10.
+- Each ashigaru has a fixed job (Lord, 2026-10-11 22:00): ashigaru10 runs every pytest (kind: pytest), ashigaru9 does lint and its fixes (kind: lint), ashigaru1-8 take every task without a kind (Lord 22:50: no docstring owner). `task_start.sh` hands each ashigaru only its own kind when it claims from the pool. Never run pytest unless you are ashigaru10.
 - Run one pytest at a time (Lord, 2026-10-11 22:04): before you start one, check that the same task's pytest is not already running (pgrep -fl pytest). Write the output to a file and read it only after the command has ended; never wait with tail -f or a pgrep loop, and never leave such a process behind.
 - No commits by Ashigaru (Lord, 2026-10-11 23:30): leave your change in the worktree only; never run git add, git commit or git push. After lint (ashigaru9) and pytest (ashigaru10) pass, Metsuke reviews the diff file by file and makes the commits.
 
-1. On a `pool_ready` message, run `bash scripts/task_pool_claim.sh ashigaruN` once.
-   - If exit 0: a task is now in your task YAML, start it.
-   - If exit 1: nothing, stay idle.
-2. At the end of every task, after the report and the QC message, run:
-   `bash scripts/task_pool_mark.sh <task_id> done ashigaruN`
-   followed by the claim command again.
-3. For a plan-gate task, run `bash scripts/plan_submit.sh ashigaruN` instead of editing `plan_status` and sending `plan_submitted` by hand.
-
 **Rules:**
 - Never edit `queue/task_pool/` by hand.
-- In a pool task, never edit the `status` line of your task YAML (the scripts set it).
-- Only add your plan block.
+- Never edit the `status` line of your task YAML (the scripts set it).
 - Never write a whole queue file (no `cat >` on queue files).
 
 ## ESPnet Task Context
@@ -218,8 +220,8 @@ bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 
 Examples:
 ```bash
-# Shogun → Karo
-bash scripts/inbox_write.sh karo "Wrote cmd_048. Please run it." cmd_new shogun
+# Human → Karo
+# Record direct TUI/ntfy requests in queue/shogun_to_karo.yaml (legacy filename).
 
 # Ashigaru → Karo
 bash scripts/inbox_write.sh karo "Ashigaru 2: task done. See the report YAML." report_received ashigaru2
@@ -242,9 +244,8 @@ Two layers:
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
 **Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
 
-Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
-- Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
+Safety note (Karo):
+- Karo is the human-facing pane. `inbox_watcher.sh` must not inject messages or escalation keystrokes into Karo while the Lord is typing.
 
 Special cases (CLI commands sent via `tmux send-keys`):
 - `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
@@ -307,7 +308,7 @@ Race condition is eliminated: context reset wipes old context. Agent re-reads YA
 | Direction | Method | Reason |
 |-----------|--------|--------|
 | Ashigaru/Gunshi → Karo | Report YAML + inbox_write | File-based notification |
-| Karo → Shogun/Lord | dashboard.md update only | **inbox to shogun FORBIDDEN** — prevents interrupting Lord's input |
+| Karo → Lord | Direct TUI reply + dashboard.md update | Karo is the human-facing entry point |
 | Karo → Gunshi | YAML + inbox_write | Strategic task delegation |
 | Top → Down | YAML + inbox_write | Standard wake-up |
 
@@ -338,11 +339,18 @@ The inbox_write guarantees persistence. inbox_watcher handles delivery.
 
 # Task Flow
 
-## Workflow: Shogun → Karo → Ashigaru
+## Workflow: Lord → Karo → Ashigaru / Metsuke / Gunshi
 
 ```
-Lord: command → Shogun: write YAML → inbox_write → Karo: decompose → inbox_write → Ashigaru: execute → report YAML → inbox_write → Karo: update dashboard → Shogun: read dashboard
+Lord: direct command → Karo: record cmd YAML, decompose → inbox_write → Ashigaru: execute → report YAML → Metsuke: QC (Gunshi escalation) → Karo: update dashboard and reply to Lord
 ```
+
+Default formation: Karo, Ashigaru 1–3, Metsuke, Tanya, Gunshi (seven panes).
+Karo consults Gunshi when strategic judgment is needed; Tanya remains Gunshi's
+bounded research assistant. Existing Ashigaru/Gunshi communication remains available.
+`queue/shogun_to_karo.yaml` and its archive retain their legacy names, but Karo
+now writes human requests there with the required cmd fields before dispatch.
+An explicit legacy profile may still enable Shogun; it is not a default dependency.
 
 ## Status Reference (Single Source)
 
@@ -359,10 +367,13 @@ Do NOT invent new status values without updating this section.
 
 ### Command Queue: `queue/shogun_to_karo.yaml`
 
-### Plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+### Optional plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
+
+The seven-role default has no Kumigashira and does not use the plan gate. Set
+`plan_gate: true` only when an explicitly selected profile enables Kumigashira.
 
 - `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step (using `task_start.sh <N>`)
-- `waived`: Karo skipped the gate for a task that edits no file (run-and-paste: pytest, lint, grep)
+- `waived`: no gate is active for this task/profile
 
 
 Meanings and allowed/forbidden actions (short):
@@ -453,23 +464,23 @@ Note:
 ### NTFY Inbox (Lord phone): `queue/ntfy_inbox.yaml`
 
 - `pending`: needs processing
-  - Allowed: Shogun processes and sets `processed`
+  - Allowed: Karo processes and sets `processed` (Shogun only in an explicit legacy formation)
   - Forbidden: leaving it pending without reason
 
 - `processed`: processed; keep record
   - Allowed: read-only
   - Forbidden: flipping back to pending without creating a new entry
 
-## Immediate Delegation Principle (Shogun)
+## Immediate Delegation Principle (Karo)
 
-**Delegate to Karo immediately and end your turn** so the Lord can input next command.
+**Record and dispatch promptly, then end your turn** so the Lord can input the next command.
 
 ```
-Lord: command → Shogun: write YAML → inbox_write → END TURN
+Lord: command → Karo: write cmd/task YAML → inbox_write → END TURN
                                         ↓
                                   Lord: can input next
                                         ↓
-                              Karo/Ashigaru: work in background
+                              Ashigaru/Metsuke/Gunshi: work in background
                                         ↓
                               dashboard.md updated as report
 ```
@@ -488,7 +499,7 @@ Step 9: Ashigaru completes → inbox_write karo → watcher nudges karo
 
 **Why no background monitor**: inbox_watcher.sh detects ashigaru's inbox_write to karo and sends a nudge. This is true event-driven. No sleep, no polling, no CPU waste.
 
-**Karo wakes via**: inbox nudge from ashigaru report, shogun new cmd, or system event. Nothing else.
+**Karo wakes via**: direct human input, QC/strategy inbox reports, ntfy input, or system events. No polling.
 
 ## "Wake = Full Scan" Pattern
 
@@ -580,7 +591,7 @@ git diff --exit-code instructions/generated/
 | ID | Action | Instead |
 |----|--------|---------|
 | F001 | Execute tasks yourself instead of delegating | Delegate to ashigaru |
-| F002 | Report directly to the human (bypass shogun) | Update dashboard.md |
+| F002 | Dispatch an unrecorded human request or bypass required QC | Record cmd YAML first; route QC to Metsuke/Gunshi. Direct human replies are allowed. |
 | F003 | Use Task agents to EXECUTE work (that's ashigaru's job) | inbox_write. Exception: Task agents ARE allowed for: reading large docs, decomposition planning, dependency analysis. Karo body stays free for message reception. |
 
 ## Ashigaru Forbidden Actions

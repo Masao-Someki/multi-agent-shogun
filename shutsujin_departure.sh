@@ -164,7 +164,7 @@ KESSEN_MODE=false
 SHOGUN_NO_THINKING=false
 SILENT_MODE=false
 SHELL_OVERRIDE=""
-MODEL_PROFILE=""
+MODEL_PROFILE="default"
 # Permission flag (default: dangerously-skip-permissions for backward compat)
 PERMISSION_FLAG="--dangerously-skip-permissions"
 
@@ -356,6 +356,16 @@ settings = yaml.safe_load(settings_path.read_text()) if settings_path.exists() e
 profile = yaml.safe_load(profile_path.read_text()) or {}
 formation = profile.pop("formation", {})
 settings = merge(settings or {}, profile)
+agent_allowlist = formation.get("agents")
+if agent_allowlist is not None:
+    if not isinstance(agent_allowlist, list) or not all(isinstance(x, str) for x in agent_allowlist):
+        raise SystemExit("formation.agents must be a list of agent IDs")
+    configured = settings.setdefault("cli", {}).setdefault("agents", {})
+    settings["cli"]["agents"] = {
+        agent_id: configured[agent_id]
+        for agent_id in agent_allowlist
+        if agent_id in configured
+    }
 ashigaru_count = formation.get("ashigaru_count")
 if ashigaru_count is not None:
     if not isinstance(ashigaru_count, int) or ashigaru_count < 1:
@@ -385,6 +395,7 @@ _ASHIGARU_COUNT=$(echo "$_ASHIGARU_IDS_STR" | wc -w | tr -d ' ')
 # A configured formation may deliberately omit Metsuke. Keep that legacy
 # route working: Ashigaru completion reports then continue to Gunshi.
 _METSUKE_ENABLED=true
+_SHOGUN_ENABLED=false
 # Kumigashira (plan gate, Sonnet) is present only when the formation names it.
 _KUMIGASHIRA_ENABLED=false
 # Tanya ids come from the formation: "tanya" alone in the Claude formation,
@@ -396,6 +407,9 @@ if [ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]; then
     # shellcheck source=lib/agent_registry.sh
     source "$SCRIPT_DIR/lib/agent_registry.sh"
     _FORMATION_AGENTS=$(agent_registry_agents)
+    if printf '%s\n' "$_FORMATION_AGENTS" | grep -Fxq "shogun"; then
+        _SHOGUN_ENABLED=true
+    fi
     if ! printf '%s\n' "$_FORMATION_AGENTS" | grep -Fxq "metsuke"; then
         _METSUKE_ENABLED=false
     fi
@@ -656,13 +670,13 @@ EOF
     echo "inbox:" > ./queue/ntfy_inbox.yaml
 
     # agent inbox リセット
-    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi metsuke kumigashira $_TANYA_IDS_STR; do
+    for agent in $_FORMATION_AGENTS; do
         echo "messages:" > "./queue/inbox/${agent}.yaml"
     done
 
     # 上位組の掲示板リセット（各 agent が自分の file だけを書く）
     mkdir -p ./queue/board
-    for agent in karo $_ASHIGARU_IDS_STR gunshi metsuke kumigashira $_TANYA_IDS_STR; do
+    for agent in $_FORMATION_AGENTS; do
         : > "./queue/board/${agent}.yaml"
     done
 
@@ -770,29 +784,21 @@ if ! command -v tmux &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STEP 5: shogun セッション作成（1ペイン・window 0 を必ず確保）
+# STEP 5: optional legacy Shogun session
 # ═══════════════════════════════════════════════════════════════════════════════
-log_war "👑 将軍の本陣を構築中..."
-
-# shogun セッションがなければ作る（-s 時もここで必ず shogun が存在するようにする）
-# window 0 のみ作成し -n main で名前付け（第二 window にするとアタッチ時に空ペインが開くため 1 window に限定）
-if ! tmux has-session -t shogun 2>/dev/null; then
-    tmux new-session -d -s shogun -n main
+if [ "$_SHOGUN_ENABLED" = true ]; then
+    log_war "👑 将軍の本陣を構築中..."
+    if ! tmux has-session -t shogun 2>/dev/null; then
+        tmux new-session -d -s shogun -n main
+    fi
+    SHOGUN_PROMPT=$(generate_prompt "将軍" "magenta" "$SHELL_SETTING")
+    tmux send-keys -t shogun:main "cd \"$(pwd)\" && export PS1='${SHOGUN_PROMPT}' && clear" Enter
+    tmux select-pane -t shogun:main -P 'bg=#002b36'
+    tmux set-option -p -t shogun:main @agent_id "shogun"
+    log_success "  └─ 将軍の本陣、構築完了"
 fi
-
-# スマホ等の小画面クライアント対策: aggressive-resize + latest
-# css関数がスマホ用に専用ウィンドウを作るので、PCのウィンドウに干渉しない
 tmux set-option -g window-size latest
 tmux set-option -g aggressive-resize on
-
-# 将軍ペインはウィンドウ名 "main" で指定（base-index 1 環境でも動く）
-SHOGUN_PROMPT=$(generate_prompt "将軍" "magenta" "$SHELL_SETTING")
-tmux send-keys -t shogun:main "cd \"$(pwd)\" && export PS1='${SHOGUN_PROMPT}' && clear" Enter
-tmux select-pane -t shogun:main -P 'bg=#002b36'  # 将軍の Solarized Dark
-tmux set-option -p -t shogun:main @agent_id "shogun"
-
-log_success "  └─ 将軍の本陣、構築完了"
-echo ""
 
 # pane-base-index を取得（1 の環境ではペインは 1,2,... になる）
 PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
@@ -959,7 +965,8 @@ if [ "$SETUP_ONLY" = false ]; then
 
     log_war "👑 全軍にエージェントCLIを召喚中..."
 
-    # 将軍: CLI Adapter経由でコマンド構築
+    # Optional legacy Shogun; the default profile starts at Karo.
+    if [ "$_SHOGUN_ENABLED" = true ]; then
     _shogun_cli_type="claude"
     _shogun_cmd="claude --model opus --effort max $PERMISSION_FLAG"
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
@@ -998,6 +1005,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
 
     # 少し待機（安定のため）
     sleep 1
+    fi
 
     # 家老（pane 0）: CLI Adapter経由でコマンド構築（デフォルト: Sonnet）
     p=$((PANE_BASE + 0))
@@ -1239,7 +1247,8 @@ NINJA_EOF
 
     echo "  エージェントCLIの起動を待機中（最大30秒）..."
 
-    # 将軍の起動を確認（最大30秒待機）
+    # Confirm the legacy Shogun only when this profile explicitly includes it.
+    if [ "$_SHOGUN_ENABLED" = true ]; then
     _shogun_ready_pattern=$(cli_ready_pattern "$_shogun_cli_type")
     for i in {1..30}; do
         if tmux capture-pane -t shogun:main -p | grep -qiE "$_shogun_ready_pattern"; then
@@ -1248,6 +1257,7 @@ NINJA_EOF
         fi
         sleep 1
     done
+    fi
 
     # ═══════════════════════════════════════════════════════════════════
     # STEP 6.6: inbox_watcher起動（全エージェント）
@@ -1256,13 +1266,13 @@ NINJA_EOF
 
     # inbox ディレクトリ初期化（シンボリックリンク先のLinux FSに作成）
     mkdir -p "$SCRIPT_DIR/logs"
-    for agent in shogun karo $_ASHIGARU_IDS_STR gunshi metsuke kumigashira $_TANYA_IDS_STR; do
+    for agent in $_FORMATION_AGENTS; do
         [ -f "$SCRIPT_DIR/queue/inbox/${agent}.yaml" ] || echo "messages:" > "$SCRIPT_DIR/queue/inbox/${agent}.yaml"
     done
 
     # 上位組の掲示板: 欠けた file を足し、board.md を描き直す
     mkdir -p "$SCRIPT_DIR/queue/board"
-    for agent in karo $_ASHIGARU_IDS_STR gunshi metsuke kumigashira $_TANYA_IDS_STR; do
+    for agent in $_FORMATION_AGENTS; do
         [ -f "$SCRIPT_DIR/queue/board/${agent}.yaml" ] || : > "$SCRIPT_DIR/queue/board/${agent}.yaml"
     done
     if [ -f "$SCRIPT_DIR/scripts/board_render.py" ]; then
@@ -1327,10 +1337,10 @@ NINJA_EOF
         log_success "  └─ ${agent_id} inbox_watcher 再起動完了 (pid=${watcher_pid})"
     }
 
-    # 将軍のwatcher（ntfy受信の自動起床に必要）
-    # 安全モード: phase2/phase3エスカレーションは無効、timeout周期処理も無効（event-drivenのみ）
-    _shogun_watcher_cli=$(tmux show-options -p -t "shogun:main" -v @agent_cli 2>/dev/null || echo "claude")
-    start_inbox_watcher shogun "shogun:main" "$_shogun_watcher_cli"
+    if [ "$_SHOGUN_ENABLED" = true ]; then
+        _shogun_watcher_cli=$(tmux show-options -p -t "shogun:main" -v @agent_cli 2>/dev/null || echo "claude")
+        start_inbox_watcher shogun "shogun:main" "$_shogun_watcher_cli"
+    fi
 
     # 家老のwatcher
     _karo_watcher_cli=$(tmux show-options -p -t "multiagent:agents.${PANE_BASE}" -v @agent_cli 2>/dev/null || echo "claude")
@@ -1460,6 +1470,9 @@ else
     log_info "📱 ntfy未設定のためリスナーはスキップ"
 fi
 echo ""
+
+# Leave the human-facing entry pane selected after startup.
+tmux select-pane -t "multiagent:agents.${PANE_BASE}" 2>/dev/null || true
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 6.9: MCP ヘルスチェック（codex足軽のMCP初期化状態を検証）

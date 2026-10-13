@@ -51,7 +51,7 @@ case "$AGENT_ID" in
 以下を順番に実行せよ (省略禁止、ユーザ応答/inbox 処理はこの後):
 
 1. \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\` で自己識別を再確認
-2. (shogun のみ) \`memory/MEMORY.md\` を Read — ルール・嗜好・教訓を復元 (file-based memory。Memory MCP は 2026-07-01 廃止済み、呼ぶな)
+2. (Karo。Shogun は明示的な旧構成のみ) \`memory/MEMORY.md\` を Read — ルール・嗜好・教訓を復元 (file-based memory。Memory MCP は 2026-07-01 廃止済み、呼ぶな)
 3. \`instructions/${ROLE_FILE}.md\` を最後まで必読 — persona・戦国口調・forbidden_actions 再確立 **(絶対省略禁止)**
 4. \`queue/\` 配下 (tasks/, inbox/, reports/) から state 再構築
 

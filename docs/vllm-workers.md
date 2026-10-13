@@ -1,4 +1,12 @@
-# Remote vLLM worker profile
+# Legacy OpenCode vLLM worker profile (not the default)
+
+> The current default is the Codex/GPT-OSS seven-agent formation described in
+> [Babel GPT-OSS setup](babel-gptoss.md). `gpu-vllm/start-vllm.sh` now supervises
+> GPT-OSS-120B, browser MCP and the Responses proxy; it does **not** launch Qwen
+> or install/upgrade vLLM. The historical steps below are retained only to
+> explain the explicit `vllm-workers` OpenCode profile. Do not use their startup
+> commands with the current launcher. This legacy profile requires a separately
+> configured, suitable OpenCode-compatible backend and is not selected by default.
 
 The `vllm-workers` model profile routes Ashigaru 1–10, Tanya and Tanya2 to
 remote OpenAI-compatible vLLM endpoints through Codex, in a 4x4 grid of 16

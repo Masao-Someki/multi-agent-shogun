@@ -269,3 +269,33 @@ tests/specs/osato_lms_*
 !reports/.gitkeep
 
 .claude/settings.local.json
+
+# Babel runtime sources only (never credentials, captures, models or npm caches)
+!gpu-vllm/service_stack.py
+!gpu-vllm/test_service_stack.py
+!gpu-vllm/vllm.key.example
+!scripts/babel-tunnel.sh
+!scripts/qc_target.sh
+!instructions/metsuke.md
+!instructions/tanya.md
+!docs/babel-gptoss.md
+!gpu-vllm/responses-proxy/RESULTS.md
+!gpu-vllm/patches/vllm-0.31.0-namespace/RESULTS.md
+!gpu-vllm/codex-gptoss.py
+!gpu-vllm/browser-search/*.py
+!gpu-vllm/browser-search/worker.mjs
+!gpu-vllm/browser-search/package.json
+!gpu-vllm/browser-search/package-lock.json
+!gpu-vllm/responses-proxy/*.py
+!gpu-vllm/patches/vllm-0.31.0-namespace/*.py
+!gpu-vllm/patches/vllm-0.31.0-namespace/*.patch
+!gpu-vllm/patches/vllm-0.31.0-namespace/*.sanitized.json
+!gpu-vllm/patches/vllm-0.31.0-namespace/original/**/*.py
+!tests/unit/*.py
+**/node_modules/
+gpu-vllm/.pixi/
+gpu-vllm/.codex-cli/
+gpu-vllm/browser-search/browsers/
+gpu-vllm/.service-state/
+**/__pycache__/
+**/vllm.key

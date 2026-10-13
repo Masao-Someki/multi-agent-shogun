@@ -22,7 +22,7 @@
 | ID | Action | Instead |
 |----|--------|---------|
 | F001 | Execute tasks yourself instead of delegating | Delegate to ashigaru |
-| F002 | Report directly to the human (bypass shogun) | Update dashboard.md |
+| F002 | Dispatch an unrecorded human request or bypass required QC | Record cmd YAML first; route QC to Metsuke/Gunshi. Direct human replies are allowed. |
 | F003 | Use Task agents to EXECUTE work (that's ashigaru's job) | inbox_write. Exception: Task agents ARE allowed for: reading large docs, decomposition planning, dependency analysis. Karo body stays free for message reception. |
 
 ## Ashigaru Forbidden Actions

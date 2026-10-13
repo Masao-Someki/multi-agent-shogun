@@ -11,6 +11,21 @@ SESSION_POOL_LOG="${SESSION_POOL_LOG:-${CLI_ADAPTER_PROJECT_ROOT}/logs/session_p
 session_pool_path() {
     local agent_id="$1"
     local cli_type="$2"
+    if [ "$cli_type" = codex ]; then
+        local provider endpoint scope
+        provider=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.provider" "")
+        if [ -n "$provider" ]; then
+            endpoint=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.base_url" "")
+            local endpoint_env
+            endpoint_env=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.base_url_env" "")
+            if [[ "$endpoint_env" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+                endpoint="${!endpoint_env:-$endpoint}"
+            fi
+            scope=$(printf '%s' "$provider|$endpoint" | cksum)
+            scope=${scope%% *}
+            cli_type="codex.${scope}"
+        fi
+    fi
     printf '%s/%s.%s.id\n' "$SESSION_POOL_DIR" "$agent_id" "$cli_type"
 }
 
@@ -44,7 +59,9 @@ session_pool_new_uuid() {
     if command -v uuidgen >/dev/null 2>&1; then
         uuidgen | tr '[:upper:]' '[:lower:]'
     else
-        "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c 'import uuid; print(uuid.uuid4())'
+        local python="$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3"
+        [ -x "$python" ] || python=python3
+        "$python" -c 'import uuid; print(uuid.uuid4())'
     fi
 }
 
