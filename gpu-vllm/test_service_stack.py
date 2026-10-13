@@ -84,10 +84,10 @@ class LifecycleTests(unittest.TestCase):
              patch.dict(os.environ, {'VLLM_STATE_DIR': directory}), \
              patch('sys.argv', ['service_stack.py', '--start-sidecars']), \
              patch.object(stack, 'ensure_patch') as compatibility, \
-             patch.object(stack, 'ready', side_effect=[False, True, False, True]) as readiness, \
+             patch.object(stack, 'ready') as readiness, \
              patch.object(stack, 'port_open', return_value=False), \
              patch.object(stack.subprocess, 'Popen', return_value=process) as spawn, \
-             patch.object(stack.time, 'sleep'):
+             patch.object(stack.time, 'sleep') as sleep:
             stack.main()
         self.assertEqual(spawn.call_count, 2)
         self.assertEqual([call.args[0] for call in spawn.call_args_list],
@@ -95,7 +95,8 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs['start_new_session']
                             for call in spawn.call_args_list))
         compatibility.assert_called_once_with()
-        self.assertEqual(readiness.call_count, 4)
+        readiness.assert_not_called()
+        sleep.assert_not_called()
 
     def test_shell_start_runs_sidecars_before_foreground_model(self):
         script = stack.ROOT / 'start-vllm.sh'

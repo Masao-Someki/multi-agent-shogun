@@ -77,31 +77,23 @@ def ensure_patch():
                        stdout=subprocess.DEVNULL)
 
 
-def start_sidecars(timeout):
-    """Start/adopt Browser MCP and the proxy, leaving them detached for vLLM."""
+def start_sidecars():
+    """Launch Browser MCP and the proxy detached; do not wait for readiness."""
     state = Path(os.environ.get('VLLM_STATE_DIR', str(ROOT / '.service-state')))
     state.mkdir(mode=0o700, parents=True, exist_ok=True)
     ensure_patch()
     plan = commands()
-    for name, port in [('browser', 8765), ('proxy', PROXY_PORT)]:
-        if ready(name):
-            print(f'Adopting ready {name} on localhost:{port}.', flush=True)
-            continue
+    sidecars = [('browser', 8765), ('proxy', PROXY_PORT)]
+    for name, port in sidecars:
         if port_open(port):
-            raise RuntimeError(f'Port {port} occupied but {name} readiness failed; refusing duplicate service.')
+            raise RuntimeError(f'Port {port} is occupied; refusing to start duplicate {name}.')
+    for name, port in sidecars:
         log_path = state / f'{name}.log'
         fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, 'ab') as log:
-            process = subprocess.Popen(plan[name], cwd=ROOT, stdout=log, stderr=log,
-                                      start_new_session=True)
-        deadline = time.monotonic() + timeout
-        while not ready(name):
-            if process.poll() is not None:
-                raise RuntimeError(f'{name} exited ({process.returncode}); see {log_path}')
-            if time.monotonic() >= deadline:
-                raise RuntimeError(f'{name} readiness timed out; see {log_path}')
-            time.sleep(1)
-        print(f'Ready {name} on localhost:{port} (background).', flush=True)
+            subprocess.Popen(plan[name], cwd=ROOT, stdout=log, stderr=log,
+                             start_new_session=True)
+        print(f'Launched {name} asynchronously on localhost:{port}; log: {log_path}', flush=True)
 
 
 def main():
@@ -115,7 +107,7 @@ def main():
         print(json.dumps(plan, indent=2))
         return
     if args.start_sidecars:
-        start_sidecars(args.ready_timeout)
+        start_sidecars()
         return
     if not os.environ.get('VLLM_API_KEY') or os.environ['VLLM_API_KEY'].startswith('REPLACE_'):
         raise RuntimeError('Set VLLM_API_KEY in ~/vllm.key before startup.')
