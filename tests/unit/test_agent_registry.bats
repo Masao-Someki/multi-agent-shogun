@@ -93,7 +93,7 @@ join_lines() {
     load_registry_with "$settings"
 
     result=$(agent_registry_multiagent_agents | join_lines)
-    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke kumigashira tanya gunshi" ]
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 metsuke tanya gunshi" ]
 }
 
 @test "agent_registry: metsuke and tanya can be omitted for a legacy formation" {

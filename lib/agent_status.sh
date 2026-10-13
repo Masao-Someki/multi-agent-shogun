@@ -89,6 +89,25 @@ agent_is_busy_check() {
         return 1  # default idle
     fi
 
+    if [[ "$cli_type" == "codex" ]]; then
+        # Codex places its activity row above the prompt and model footer. At
+        # narrow pane widths the row may be clipped/wrapped, so inspect the
+        # most recent activity marker rather than only the bottom five lines.
+        local codex_recent codex_last_activity
+        codex_recent=$(printf '%s\n' "$full_capture" | tail -8)
+        codex_last_activity=$(printf '%s\n' "$codex_recent" \
+            | grep -E '^[[:space:]]*•[[:space:]]*(Working|Worked for)' | tail -1 || true)
+        if [[ "$codex_last_activity" == *"Working"* ]]; then
+            return 0  # busy
+        fi
+        if [[ "$codex_last_activity" == *"Worked for"* ]]; then
+            return 1  # idle after response
+        fi
+        if printf '%s\n' "$codex_recent" | grep -qF '› Ask Codex to do anything'; then
+            return 1  # idle prompt
+        fi
+    fi
+
     # Pane exists but capture is empty → treat as idle, not absent
     if [[ -z "$pane_tail" ]]; then
         return 1
