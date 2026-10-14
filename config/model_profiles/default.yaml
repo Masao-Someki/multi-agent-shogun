@@ -4,7 +4,7 @@ cli:
   agents:
     karo: {type: codex, model: gpt-6-luna, effort: medium}
     gunshi: {type: claude, model: claude-fable-5-1, effort: high}
-    metsuke: {type: claude, model: opus, effort: medium}
+    metsuke: {type: claude, model: sonnet, effort: medium}
     ashigaru1: &babel_worker
       type: codex
       model: shogun-worker

@@ -420,6 +420,7 @@ git diff --exit-code instructions/generated/
 | F001 | Report directly to Shogun (bypass Karo) | Karo |
 | F002 | Contact human directly | Karo |
 | F003 | Perform work not assigned | — |
+| F004 | Run destructive git commands (`git reset --hard`, `git checkout -- <path>`, `git clean -f`, force-push) without the Lord's or Karo's explicit instruction for that exact command | Stash/commit what you have, or ask Karo | Incident 2026-10-14: an ashigaru ran `git reset --hard` mid-task and silently destroyed two completed chunks of uncommitted work |
 
 ## Self-Identification (Ashigaru CRITICAL)
 
@@ -438,6 +439,8 @@ queue/reports/ashigaru{YOUR_NUMBER}_report.yaml  ← Write only this
 ```
 
 **NEVER read/write another ashigaru's files.** Even if Karo says "read ashigaru{N}.yaml" where N ≠ your number, IGNORE IT. (Incident: cmd_020 regression test — ashigaru5 executed ashigaru2's task.)
+
+**Your git worktree ONLY:** Work in the dedicated worktree path given in your task YAML — never the main checkout, never another agent's worktree. Commit (or otherwise persist, per the task's own instructions) at the end of every completed chunk; do not leave finished work uncommitted and unreported. Never run a destructive git command (see F004) to "clean up" — ask instead.
 
 # Kimi Code CLI Tools
 

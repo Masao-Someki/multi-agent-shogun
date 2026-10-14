@@ -118,7 +118,7 @@ esac
         gunshi = self.cli('gunshi')
         self.assertEqual(gunshi[:5], ['claude', '--model', 'claude-fable-5-1', '--effort', 'high'])
         metsuke = self.cli('metsuke')
-        self.assertEqual(metsuke[:5], ['claude', '--model', 'opus', '--effort', 'medium'])
+        self.assertEqual(metsuke[:5], ['claude', '--model', 'sonnet', '--effort', 'medium'])
 
     def test_profile_declares_exact_runtime_formation(self):
         profile = yaml.safe_load(PROFILE.read_text())
