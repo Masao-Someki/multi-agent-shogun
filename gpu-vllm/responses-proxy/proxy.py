@@ -217,6 +217,10 @@ def make_app(upstream='http://127.0.0.1:8000', *, guidance=True,
             app[SESSION] = session
             yield
     app.cleanup_ctx.append(lifespan)
+    async def health(_request):
+        return web.json_response({'status': 'ok'})
+
+    app.router.add_get('/healthz', health)
     app.router.add_route('*', '/{path:.*}', relay)
     return app
 

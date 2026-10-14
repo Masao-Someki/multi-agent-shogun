@@ -14,6 +14,7 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent
+PROXY_PORT = int(os.environ.get('SHOGUN_PROXY_PORT', '33987'))
 
 
 def commands():
@@ -29,7 +30,7 @@ def commands():
                   '--async-scheduling', '--cudagraph-capture-sizes', '1',
                   '--tool-server', '127.0.0.1:8765'],
         'proxy': [sys.executable, str(ROOT / 'responses-proxy/proxy.py'),
-                  '--upstream', 'http://127.0.0.1:8000'],
+                  '--upstream', 'http://127.0.0.1:8000', '--port', str(PROXY_PORT)],
     }
 
 
@@ -42,16 +43,18 @@ def port_open(port):
 
 
 def ready(name):
-    port = {'browser': 8765, 'model': 8000, 'proxy': 8003}[name]
+    port = {'browser': 8765, 'model': 8000, 'proxy': PROXY_PORT}[name]
     headers = {}
     if name != 'browser' and os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
-    path = '/sse' if name == 'browser' else '/v1/models'
+    path = {'browser': '/sse', 'model': '/v1/models', 'proxy': '/healthz'}[name]
     try:
         req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', headers=headers)
         with urllib.request.urlopen(req, timeout=3) as response:
             if name == 'browser':
                 return 'text/event-stream' in response.headers.get('Content-Type', '')
+            if name == 'proxy':
+                return json.load(response).get('status') == 'ok'
             return any(x.get('id') == 'shogun-worker' for x in json.load(response).get('data', []))
     except (OSError, ValueError):
         return False
@@ -74,14 +77,37 @@ def ensure_patch():
                        stdout=subprocess.DEVNULL)
 
 
+def start_sidecars():
+    """Launch Browser MCP and the proxy detached; do not wait for readiness."""
+    state = Path(os.environ.get('VLLM_STATE_DIR', str(ROOT / '.service-state')))
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_patch()
+    plan = commands()
+    sidecars = [('browser', 8765), ('proxy', PROXY_PORT)]
+    for name, port in sidecars:
+        if port_open(port):
+            raise RuntimeError(f'Port {port} is occupied; refusing to start duplicate {name}.')
+    for name, port in sidecars:
+        log_path = state / f'{name}.log'
+        fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, 'ab') as log:
+            subprocess.Popen(plan[name], cwd=ROOT, stdout=log, stderr=log,
+                             start_new_session=True)
+        print(f'Launched {name} asynchronously on localhost:{port}; log: {log_path}', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--start-sidecars', action='store_true')
     parser.add_argument('--ready-timeout', type=float, default=1800)
     args = parser.parse_args()
     plan = commands()
     if args.dry_run:
         print(json.dumps(plan, indent=2))
+        return
+    if args.start_sidecars:
+        start_sidecars()
         return
     if not os.environ.get('VLLM_API_KEY') or os.environ['VLLM_API_KEY'].startswith('REPLACE_'):
         raise RuntimeError('Set VLLM_API_KEY in ~/vllm.key before startup.')
@@ -108,7 +134,7 @@ def main():
                 raise RuntimeError(f'{name} exited ({process.returncode}); see {state}/{name}.log')
 
     try:
-        for name, port in [('browser', 8765), ('model', 8000), ('proxy', 8003)]:
+        for name, port in [('browser', 8765), ('model', 8000), ('proxy', PROXY_PORT)]:
             if ready(name):
                 print(f'Adopting ready {name} on localhost:{port}; ownership remains external.', flush=True)
                 continue
@@ -131,7 +157,7 @@ def main():
                     raise RuntimeError(f'{name} readiness timed out; see {state}/{name}.log')
                 time.sleep(1)
             print(f'Ready {name} on localhost:{port}', flush=True)
-        print('Stack ready; worker URL http://127.0.0.1:8003/v1', flush=True)
+        print(f'Stack ready; worker URL http://127.0.0.1:{PROXY_PORT}/v1', flush=True)
         while not stopped:
             check_children()
             for name in plan:
