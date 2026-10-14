@@ -8,7 +8,7 @@ hierarchy: "Lord (human) → Karo → Ashigaru 1-3 / Metsuke / Gunshi; Gunshi �
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 tmux_sessions:
-  multiagent: { pane_0: karo, pane_1-3: ashigaru1-3, pane_4: metsuke, pane_5: tanya, pane_6: gunshi }
+  multiagent: { pane_0: karo, pane_1-4: ashigaru1-4, pane_5: metsuke, pane_6: gunshi }
   optional_profiles: "Explicit legacy/model profiles may add agents; the default has seven roles and no Shogun or Kumigashira."
   pane_lookup: "tmux list-panes -t multiagent -F '#{pane_index} #{@agent_id}'   # the pane numbers above follow the formation; look them up, never assume"
 

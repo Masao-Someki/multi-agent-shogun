@@ -19,8 +19,8 @@ agent_registry_default_agents() {
         ashigaru1 \
         ashigaru2 \
         ashigaru3 \
+        ashigaru4 \
         metsuke \
-        tanya \
         gunshi
 }
 
