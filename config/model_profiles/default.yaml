@@ -5,7 +5,8 @@ cli:
     karo: {type: codex, model: gpt-6-luna, effort: medium}
     gunshi: {type: claude, model: claude-fable-5-1, effort: high}
     metsuke: {type: claude, model: sonnet, effort: medium}
-    ashigaru1: &babel_worker
+    ashigaru1: {type: claude, model: sonnet, effort: low}
+    ashigaru2: &babel_worker
       type: codex
       model: shogun-worker
       effort: medium
@@ -13,9 +14,8 @@ cli:
       base_url_env: SHOGUN_VLLM_BASE_URL
       base_url: http://127.0.0.1:8003/v1
       api_key_env: SHOGUN_VLLM_API_KEY
-    ashigaru2: *babel_worker
     ashigaru3: *babel_worker
-    tanya: *babel_worker
+    ashigaru4: *babel_worker
 formation:
-  agents: [karo, ashigaru1, ashigaru2, ashigaru3, metsuke, tanya, gunshi]
-  ashigaru_count: 3
+  agents: [karo, ashigaru1, ashigaru2, ashigaru3, ashigaru4, metsuke, gunshi]
+  ashigaru_count: 4

@@ -56,7 +56,7 @@ esac
             calls = log.read_text().splitlines()
             roles = [call.split()[-1] for call in calls if ' @agent_id ' in call]
             self.assertEqual(roles, ['karo', 'ashigaru1', 'ashigaru2', 'ashigaru3',
-                                     'metsuke', 'tanya', 'gunshi'])
+                                     'ashigaru4', 'metsuke', 'gunshi'])
             self.assertFalse(any('new-session' in call and '-s shogun' in call
                                  for call in calls))
             self.assertIn('select-pane -t multiagent:agents.0', calls)
@@ -77,7 +77,7 @@ esac
     def test_default_is_seven_agents_with_karo_first(self):
         actual = self.shell('source lib/agent_registry.sh; agent_registry_agents').splitlines()
         self.assertEqual(actual, ['karo', 'ashigaru1', 'ashigaru2', 'ashigaru3',
-                                  'metsuke', 'tanya', 'gunshi'])
+                                  'ashigaru4', 'metsuke', 'gunshi'])
         fallback = self.shell('AGENT_REGISTRY_SETTINGS=/nonexistent; '
                               'source lib/agent_registry.sh; agent_registry_agents').splitlines()
         self.assertEqual(fallback, actual)
@@ -86,7 +86,7 @@ esac
                          'multiagent:agents.1')
 
     def test_workers_use_babel_responses_and_medium(self):
-        for agent in ['ashigaru1', 'ashigaru2', 'ashigaru3', 'tanya']:
+        for agent in ['ashigaru2', 'ashigaru3', 'ashigaru4']:
             with self.subTest(agent=agent):
                 args = self.cli(agent, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:32424/v1')
                 self.assertEqual(args[0], 'codex')
@@ -102,14 +102,18 @@ esac
 
     def test_resume_pool_is_provider_and_endpoint_scoped(self):
         command = ('source lib/cli_adapter.sh; source lib/session_pool.sh; '
-                   'session_pool_path ashigaru1 codex')
+                   'session_pool_path ashigaru2 codex')
         first = self.shell(command, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:8003/v1')
         second = self.shell(command, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:32424/v1')
         self.assertNotEqual(first, second)
         commercial = self.shell('source lib/cli_adapter.sh; source lib/session_pool.sh; '
                                 'session_pool_path metsuke codex')
         self.assertTrue(commercial.endswith('/metsuke.codex.id'))
-        self.assertFalse(first.endswith('/ashigaru1.codex.id'))
+        self.assertFalse(first.endswith('/ashigaru2.codex.id'))
+
+    def test_ashigaru1_is_claude_sonnet_low(self):
+        ashigaru1 = self.cli('ashigaru1')
+        self.assertEqual(ashigaru1[:5], ['claude', '--model', 'sonnet', '--effort', 'low'])
 
     def test_commercial_role_models_and_efforts(self):
         karo = self.cli('karo')
@@ -123,7 +127,7 @@ esac
     def test_profile_declares_exact_runtime_formation(self):
         profile = yaml.safe_load(PROFILE.read_text())
         self.assertEqual(set(profile['formation']['agents']), set(profile['cli']['agents']))
-        self.assertEqual(profile['formation']['ashigaru_count'], 3)
+        self.assertEqual(profile['formation']['ashigaru_count'], 4)
 
 
 if __name__ == '__main__':
