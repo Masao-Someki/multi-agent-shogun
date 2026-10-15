@@ -208,20 +208,18 @@ bash scripts/inbox_write.sh karo "Ashigaru {N}: task done. See the report YAML."
 That's it. No state checking, no retry, no delivery verification.
 The inbox_write guarantees persistence. inbox_watcher handles delivery.
 
-# Task Flow
+# Ticket Flow
 
-## Workflow: Lord → Karo → Ashigaru / Metsuke / Gunshi
+## Workflow: Head Chef → Sous-chef → Cook / Quality Inspector / Menu Planner
 
 ```
-Lord: direct command → Karo: record cmd YAML, decompose → inbox_write → Ashigaru: execute → report YAML → Metsuke: QC (Gunshi escalation) → Karo: update dashboard and reply to Lord
+Head Chef: direct command → Sous-chef: record ticket YAML, decompose → inbox_write → Cook: execute → report YAML → Quality Inspector (Menu Planner escalation) → Sous-chef: update dashboard and reply to Head Chef
 ```
 
-Default formation: Karo, Ashigaru 1–3, Metsuke, Tanya, Gunshi (seven panes).
-Karo consults Gunshi when strategic judgment is needed; Tanya remains Gunshi's
-bounded research assistant. Existing Ashigaru/Gunshi communication remains available.
-`queue/shogun_to_karo.yaml` and its archive retain their legacy names, but Karo
-now writes human requests there with the required cmd fields before dispatch.
-An explicit legacy profile may still enable Shogun; it is not a default dependency.
+Default formation: Sous-chef, Cooks 1–3, Quality Inspector, Research Cook, Menu Planner (seven panes).
+Sous-chef consults Menu Planner when strategic judgment is needed; Research Cook remains Menu Planner's bounded research assistant. Existing Cook/Menu Planner communication remains available.
+`queue/shogun_to_karo.yaml` and its archive retain their legacy names, but Sous-chef now writes human requests there with the required cmd fields before dispatch.
+An explicit legacy profile may still enable Owner; it is not a default dependency.
 
 ## Status Reference (Single Source)
 
@@ -240,17 +238,17 @@ Do NOT invent new status values without updating this section.
 
 ### Optional plan gate: `plan_status` in `queue/tasks/ashigaruN.yaml`
 
-The seven-role default has no Kumigashira and does not use the plan gate. Set
-`plan_gate: true` only when an explicitly selected profile enables Kumigashira.
+The seven-role default has no Shift Lead and does not use the plan gate. Set
+`plan_gate: true` only when an explicitly selected profile enables Shift Lead.
 
-- `approved` / `revised`: Kumigashira accepted the plan, or fixed it; the Ashigaru runs it step by step (using `task_start.sh <N>`)
-- `waived`: no gate is active for this task/profile
+- `approved` / `revised`: Shift Lead accepted the plan, or fixed it; the Cook runs it step by step (using `task_start.sh <N>`)
+- `waived`: no gate is active for this ticket/profile
 
 
 Meanings and allowed/forbidden actions (short):
 
 - `pending`: not acknowledged yet
-  - Allowed: Karo reads and immediately ACKs (`pending → in_progress`)
+  - Allowed: Sous-chef reads and immediately ACKs (`pending → in_progress`)
   - Forbidden: dispatching subtasks while still `pending`
 
 - `in_progress`: acknowledged and being worked
@@ -265,10 +263,10 @@ Meanings and allowed/forbidden actions (short):
   - Allowed: read-only (history)
   - Forbidden: continuing work under this cmd (use a new cmd instead)
 
-### Task pool: `queue/task_pool/<task_id>.yaml`
+### Ticket pool: `queue/task_pool/<ticket_id>.yaml`
 - Statuses: `open`, `claimed`, `done`, `failed`
 - Managed only by `task_pool_add.sh`, `task_pool_claim.sh` and `task_pool_mark.sh` (never by hand)
-- Karo adds drafts from `queue/task_pool/drafts/`; an idle Ashigaru claims the oldest open task whose `depends_on` are done and whose `files` do not overlap a claimed task
+- Sous-chef adds drafts from `queue/task_pool/drafts/`; an idle Cook claims the oldest open ticket whose `depends_on` are done and whose `files` do not overlap a claimed ticket
 
 ### Archive Rule
 
@@ -276,7 +274,7 @@ The active queue file (`queue/shogun_to_karo.yaml`) must only contain
 `pending` and `in_progress` entries. All other statuses are archived.
 
 When a cmd reaches a terminal status (`done`, `cancelled`, `paused`),
-Karo must move the entire YAML entry to `queue/shogun_to_karo_archive.yaml`.
+Sous-chef must move the entire YAML entry to `queue/shogun_to_karo_archive.yaml`.
 
 | Status | In active file? | Action |
 |--------|----------------|--------|
@@ -291,94 +289,94 @@ Karo must move the entire YAML entry to `queue/shogun_to_karo_archive.yaml`.
 - `in_progress` — acknowledged, being worked
 - `done` — complete (covers former "completed", "superseded", "active")
 - `cancelled` — intentionally stopped, will not resume
-- `paused` — stopped by Lord's decision, may resume later
+- `paused` — stopped by Head Chef's decision, may resume later
 
 Any other status value (e.g., `completed`, `active`, `superseded`) is
 forbidden. If found during archive, normalize to the canonical set above.
 
-**Karo rule (ack fast)**:
-- The moment Karo starts processing a cmd (after reading it), update that cmd status:
+**Sous-chef rule (ack fast)**:
+- The moment Sous-chef starts processing a cmd (after reading it), update that cmd status:
   - `pending` → `in_progress`
   - This prevents "nobody is working" confusion and stabilizes escalation logic.
 
-### Ashigaru Task File: `queue/tasks/ashigaruN.yaml`
+### Cook Ticket File: `queue/tasks/ashigaruN.yaml`
 
 Meanings and allowed/forbidden actions (short):
 
 - `assigned`: start now
-  - Allowed: assignee ashigaru executes and updates to `done/failed` + report + inbox_write
-  - Forbidden: other agents editing that ashigaru YAML
+  - Allowed: assignee cook executes and updates to `done/failed` + report + inbox_write
+  - Forbidden: other agents editing that cook YAML
 
 - `blocked`: do NOT start yet (prereqs missing)
-  - Allowed: Karo unblocks by changing to `assigned` when ready, then inbox_write
+  - Allowed: Sous-chef unblocks by changing to `assigned` when ready, then inbox_write
   - Forbidden: nudging or starting work while `blocked`
 
 - `done`: completed
   - Allowed: read-only; used for consolidation
-  - Forbidden: reusing task_id for redo (use redo protocol)
+  - Forbidden: reusing ticket_id for redo (use redo protocol)
 
 - `failed`: failed with reason
   - Allowed: report must include reason + unblock suggestion
   - Forbidden: silent failure
 
 Note:
-- Normally, "idle" is a UI state (no active task), not a YAML status value.
-- Exception (placeholder only): `status: idle` is allowed **only** when `task_id: null` (clean start template written by `shutsujin_departure.sh --clean`).
-  - In that state, the file is a placeholder and should be treated as "no task assigned yet".
+- Normally, "idle" is a UI state (no active ticket), not a YAML status value.
+- Exception (placeholder only): `status: idle` is allowed **only** when `ticket_id: null` (clean start template written by `shutsujin_departure.sh --clean`).
+  - In that state, the file is a placeholder and should be treated as "no ticket assigned yet".
 
-### Pending Tasks (Karo-managed): `queue/tasks/pending.yaml`
+### Pending Tickets (Sous-chef-managed): `queue/tasks/pending.yaml`
 
 - `pending_blocked`: holding area; **must not** be assigned yet
-  - Allowed: Karo moves it to an `ashigaruN.yaml` as `assigned` after prerequisites complete
-  - Forbidden: pre-assigning to ashigaru before ready
+  - Allowed: Sous-chef moves it to a `ashigaruN.yaml` as `assigned` after prerequisites complete
+  - Forbidden: pre-assigning to cook before ready
 
-### NTFY Inbox (Lord phone): `queue/ntfy_inbox.yaml`
+### NTFY Inbox (Head Chef phone): `queue/ntfy_inbox.yaml`
 
 - `pending`: needs processing
-  - Allowed: Karo processes and sets `processed` (Shogun only in an explicit legacy formation)
+  - Allowed: Sous-chef processes and sets `processed` (Owner only in an explicit legacy formation)
   - Forbidden: leaving it pending without reason
 
 - `processed`: processed; keep record
   - Allowed: read-only
   - Forbidden: flipping back to pending without creating a new entry
 
-## Immediate Delegation Principle (Karo)
+## Immediate Delegation Principle (Sous-chef)
 
-**Record and dispatch promptly, then end your turn** so the Lord can input the next command.
+**Record and dispatch promptly, then end your turn** so the Head Chef can input the next command.
 
 ```
-Lord: command → Karo: write cmd/task YAML → inbox_write → END TURN
+Head Chef: command → Sous-chef: write cmd/ticket YAML → inbox_write → END TURN
                                         ↓
-                                  Lord: can input next
+                                  Head Chef: can input next
                                         ↓
-                              Ashigaru/Metsuke/Gunshi: work in background
+                              Cook/Quality Inspector/Menu Planner: work in background
                                         ↓
                               dashboard.md updated as report
 ```
 
-## Event-Driven Wait Pattern (Karo)
+## Event-Driven Wait Pattern (Sous-chef)
 
 **After dispatching all subtasks: STOP.** Do not launch background monitors or sleep loops.
 
 ```
-Step 7: Dispatch cmd_N subtasks → inbox_write to ashigaru
+Step 7: Dispatch cmd_N subtasks → inbox_write to cook
 Step 8: check_pending → if pending cmd_N+1, process it → then STOP
-  → Karo becomes idle (prompt waiting)
-Step 9: Ashigaru completes → inbox_write karo → watcher nudges karo
-  → Karo wakes, scans reports, acts
+  → Sous-chef becomes idle (prompt waiting)
+Step 9: Cook completes → inbox_write sous-chef → watcher nudges sous-chef
+  → Sous-chef wakes, scans reports, acts
 ```
 
-**Why no background monitor**: inbox_watcher.sh detects ashigaru's inbox_write to karo and sends a nudge. This is true event-driven. No sleep, no polling, no CPU waste.
+**Why no background monitor**: inbox_watcher.sh detects cook's inbox_write to sous-chef and sends a nudge. This is true event-driven. No sleep, no polling, no CPU waste.
 
-**Karo wakes via**: direct human input, QC/strategy inbox reports, ntfy input, or system events. No polling.
+**Sous-chef wakes via**: direct human input, QC/strategy inbox reports, ntfy input, or system events. No polling.
 
 ## "Wake = Full Scan" Pattern
 
 Claude Code cannot "wait". Prompt-wait = stopped.
 
-1. Dispatch ashigaru
+1. Dispatch cook
 2. Say "stopping here" and end processing
-3. Ashigaru wakes you via inbox
+3. Cook wakes you via inbox
 4. Scan ALL report files (not just the reporting one)
 5. Assess situation, then act
 
@@ -387,13 +385,13 @@ Claude Code cannot "wait". Prompt-wait = stopped.
 On every wakeup (regardless of reason), scan ALL `queue/reports/ashigaru*_report.yaml`.
 Cross-reference with dashboard.md — process any reports not yet reflected.
 
-**Why**: Ashigaru inbox messages may be delayed. Report files are already written and scannable as a safety net.
+**Why**: Cook inbox messages may be delayed. Report files are already written and scannable as a safety net.
 
 ## Foreground Block Prevention (24-min Freeze Lesson)
 
-**Karo blocking = entire army halts.** On 2026-02-06, foreground `sleep` during delivery checks froze karo for 24 minutes.
+**Sous-chef blocking = entire kitchen halts.** On 2026-02-06, foreground `sleep` during delivery checks froze sous-chef for 24 minutes.
 
-**Rule: NEVER use `sleep` in foreground.** After dispatching tasks → stop and wait for inbox wakeup.
+**Rule: NEVER use `sleep` in foreground.** After dispatching tickets → stop and wait for inbox wakeup.
 
 | Command Type | Execution Method | Reason |
 |-------------|-----------------|--------|
@@ -406,8 +404,8 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 
 ```
 ✅ Correct (event-driven):
-  cmd_008 dispatch → inbox_write ashigaru → stop (await inbox wakeup)
-  → ashigaru completes → inbox_write karo → karo wakes → process report
+  cmd_008 dispatch → inbox_write cook → stop (await inbox wakeup)
+  → cook completes → inbox_write sous-chef → sous-chef wakes → process report
 
 ❌ Wrong (polling):
   cmd_008 dispatch → sleep 30 → capture-pane → check status → sleep 30 ...
@@ -426,7 +424,7 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 Rule:
 - Run the same checks as GitHub Actions *before* committing.
 - Only commit when checks are OK.
-- Ask the Lord before any `git push`.
+- Ask the Head Chef before any `git push`.
 
 Minimum local checks:
 ```bash
@@ -448,7 +446,7 @@ git diff --exit-code instructions/generated/
 | F005 | Skip context reading | Always read first | Prevents errors |
 | F006 | Edit generated files directly (`instructions/generated/*.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `agents/default/system.md`) | Edit source templates (`CLAUDE.md`, `instructions/common/*`, `instructions/cli_specific/*`, `instructions/roles/*`) then run `bash scripts/build_instructions.sh` | CI "Build Instructions Check" fails when generated files drift from templates |
 | F007 | `git push` without the Lord's explicit approval | Ask the Lord first | Prevents leaking secrets / unreviewed changes |
-| F008 | Inject shogun persona/identity/forbidden-actions content into a `vibe`-type agent's prompt (self-identification step, 戦国口調, inbox protocol, etc.) | Pass it only the bare task content (see `instructions/common/chunk_task_template.md`) | Extra framing confuses the Vibe CLI's own agent loop and degrades task completion - it is deliberately run with no persona, only the task |
+| F008 | Inject shogun PERSONA content into a `vibe`-type agent's prompt or task text - sengoku speech (戦国口調), "you are ashigaru N"/足軽 framing, the full forbidden-actions list, or any role-play language | Plain, mechanical wording only: `instructions/common/vibe_minimal_protocol.md` (inbox check, task read, completion report) is the one standing exception and is primed automatically at launch; task content itself follows `instructions/common/chunk_task_template.md` | Persona/role-play framing confuses the Vibe CLI's own agent loop and degrades task completion; the plain mechanical steps it needs (how to notice new work, how to report done) do not have that effect and are intentionally still provided |
 
 ## Shogun Forbidden Actions
 

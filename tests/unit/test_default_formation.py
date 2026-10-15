@@ -91,12 +91,25 @@ esac
     def test_all_ashigaru_use_vibe_with_no_persona(self):
         for agent in ['ashigaru1', 'ashigaru2', 'ashigaru3', 'ashigaru4']:
             with self.subTest(agent=agent):
-                args = self.cli(agent)
-                self.assertEqual(args, ['vibe', '--agent', 'plan', '--auto-approve', '--trust'])
+                # A fresh launch (startup prompt NOT suppressed) primes the
+                # plain-mechanics protocol, with no persona/identity wording.
+                args = self.cli(agent, CLI_ADAPTER_SKIP_STARTUP_PROMPT='false')
+                self.assertEqual(args[:4], ['vibe', '--agent', 'plan', '--auto-approve'])
+                self.assertIn('--trust', args)
+                joined = ' '.join(args)
+                self.assertNotIn('ashigaru', joined.lower())
+                self.assertNotIn('足軽', joined)
+                self.assertIn('vibe_minimal_protocol.md', joined)
+
+                # A resumed/pooled session (startup prompt suppressed) gets
+                # the bare command, same as every other CLI type.
+                resumed_args = self.cli(agent)
+                self.assertEqual(resumed_args, ['vibe', '--agent', 'plan', '--auto-approve', '--trust'])
+
                 instruction_file = self.shell(
                     f'source lib/cli_adapter.sh; get_instruction_file {agent} vibe'
                 )
-                self.assertEqual(instruction_file, '')
+                self.assertEqual(instruction_file, 'instructions/common/vibe_minimal_protocol.md')
 
     def test_resume_pool_is_provider_and_endpoint_scoped(self):
         # session_pool_path's endpoint-scoping only applies to an agent
