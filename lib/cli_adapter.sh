@@ -20,7 +20,7 @@ CLI_ADAPTER_SETTINGS="${CLI_ADAPTER_SETTINGS:-${CLI_ADAPTER_PROJECT_ROOT}/config
 
 # 許可されたCLI種別
 CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode cursor"
-CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode antigravity"
+CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode antigravity vibe"
 
 # _cli_adapter_normalize_cli_type cli_type
 # CLI種別の互換aliasを正規名へ正規化する。
@@ -227,7 +227,7 @@ get_cli_type() {
     local result
     result=$("$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c "
 import yaml, sys
-allowed = ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor', 'antigravity')
+allowed = ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor', 'antigravity', 'vibe')
 def normalize_cli(value):
     value = str(value or '').lower()
     if value in ('gemini', 'agy'):
@@ -459,6 +459,18 @@ build_cli_command() {
                 cmd="$cmd --model $model"
             fi
             ;;
+        vibe)
+            # Mistral's `vibe` CLI. Deliberately no persona/identity
+            # injection (see F008): --agent plan governs tool-approval
+            # policy, --auto-approve skips prompts, --trust skips the
+            # workdir trust prompt for non-interactive automation. A
+            # chunk's task text is passed per-invocation via `vibe -p`/
+            # `--prompt-file` and `--workdir <dedicated-worktree>` - see
+            # instructions/common/chunk_task_template.md. This is a
+            # one-shot programmatic dispatch, not a persistent pane
+            # identity; CLI_ADAPTER_SKIP_STARTUP_PROMPT is forced below.
+            cmd="vibe --agent plan --auto-approve --trust"
+            ;;
         *)
             cmd="claude $permission_flag"
             ;;
@@ -466,7 +478,8 @@ build_cli_command() {
 
     # A resumed session already has its role and task context.  Callers that
     # manage a persistent session pool suppress the one-time startup prompt.
-    if [[ "${CLI_ADAPTER_SKIP_STARTUP_PROMPT:-false}" != "true" ]]; then
+    # vibe never gets one: no persona/identity is injected for it (F008).
+    if [[ "$cli_type" != "vibe" && "${CLI_ADAPTER_SKIP_STARTUP_PROMPT:-false}" != "true" ]]; then
         local startup_prompt_arg
         startup_prompt_arg=$(get_startup_prompt_arg "$agent_id")
         if [[ -n "$startup_prompt_arg" ]]; then
@@ -507,6 +520,7 @@ get_instruction_file() {
         opencode) echo "instructions/generated/opencode-${role}.md" ;;
         cursor)  echo "instructions/generated/cursor-${role}.md" ;;
         antigravity) echo "instructions/generated/antigravity-${role}.md" ;;
+        vibe)    echo "" ;;  # no persona/identity file - see F008
         *)       echo "instructions/${role}.md" ;;
     esac
 }
@@ -559,6 +573,12 @@ validate_cli_availability() {
                 echo "[ERROR] Antigravity CLI not found. Install and authenticate Google's Antigravity CLI, then ensure 'agy' is on PATH." >&2
                 return 1
             fi
+            ;;
+        vibe)
+            command -v vibe &>/dev/null || {
+                echo "[ERROR] Mistral Vibe CLI not found. Run 'vibe --setup' after installing it, then ensure 'vibe' is on PATH." >&2
+                return 1
+            }
             ;;
         *)
             echo "[ERROR] Unknown CLI type: '$cli_type'. Allowed: $CLI_ADAPTER_ALLOWED_CLIS" >&2

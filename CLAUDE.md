@@ -48,6 +48,8 @@ task_status_transitions:
   - "RULE: Each ashigaru works in its own dedicated git worktree (never the main checkout or another agent's worktree). Karo assigns the worktree path in the task YAML."
   - "RULE: Commit (or otherwise persist, per the task's instructions) at the end of each completed chunk/task. Do not report a task done with work still uncommitted and unexplained."
   - "RULE: git reset --hard / git checkout -- <path> / git clean -f and other history-discarding commands are forbidden without the Lord's or Karo's explicit instruction for that exact command. If stuck, stash or ask — never reset. (Incident: 2026-10-14, an ashigaru ran git reset --hard mid-task and silently destroyed two completed chunks of uncommitted work.)"
+  - "RULE: A vibe-type ashigaru never commits or pushes itself. It delivers a patch file per instructions/common/chunk_task_template.md; Metsuke reviews it, applies/commits it after QC, and only the Lord's explicit instruction triggers a push (F007)."
+  - "RULE: Gunshi is consulted by Karo only - for chunk decomposition and design decisions. An ashigaru never contacts Gunshi directly; route any question back through Karo."
 
 # Status definitions are authoritative in:
 # - instructions/common/task_flow.md (Status Reference)

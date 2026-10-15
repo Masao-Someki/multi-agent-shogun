@@ -132,6 +132,41 @@ task:
   timestamp: "2026-01-25T12:00:00"
 ```
 
+## Code Implementation/Test Chunk Tasks
+
+For a bounded code-implementation or test-writing chunk against an
+existing codebase (not a simple doc-creation task), build the task's
+`description` from the fixed skeleton in
+`instructions/common/chunk_task_template.md` - don't write it free-form.
+It defines what Karo decides per task (worktree, design-doc pointer, scope
+limit, patch filename) versus the boilerplate to reuse verbatim (baseline
+check, deliverable-as-patch-file, self-check footer), plus the
+sparse-checkout worktree recipe that avoids a slow full checkout. Tasks
+built this way have a far higher first-try success rate than free-form
+instructions - skipping the skeleton (no patch-file deliverable, no
+explicit scope limit, no design-doc pointer) has repeatedly produced
+silent scope violations and unverified "done" reports.
+
+### vibe-type ashigaru: pool + dedicated worktree, no identity
+
+For a `vibe`-type ashigaru (see F008 - no persona/identity injection, ever
+- it gets only the chunk text), Karo's job is a continuous loop, not a
+one-off dispatch:
+
+1. Keep producing chunks (via the skeleton above) and add each one to
+   `queue/task_pool/<task_id>.yaml` as it's designed - don't wait for the
+   pool to empty before adding the next.
+2. Prepare a dedicated worktree per chunk (sparse-checkout recipe in
+   chunk_task_template.md) before dispatching it - never point two chunks
+   at the same worktree.
+3. Dispatch is a one-shot programmatic `vibe` invocation per chunk
+   (`vibe -p "$(cat chunkfile)" --agent plan --auto-approve --trust
+   --workdir <dedicated-worktree>`), not a persistent pane - there is no
+   inbox/identity exchange with it.
+4. The chunk's patch output goes to Metsuke for QC. Metsuke applies/commits
+   after review (never the vibe agent itself, never Karo) - push only on
+   the Lord's explicit instruction (F007).
+
 ## echo_message Rule
 
 echo_message field is OPTIONAL.
