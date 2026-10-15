@@ -1,0 +1,16 @@
+worker_id: ashigaru4
+task_id: restaurant_ticket_session_guidance_template_v3
+parent_cmd: cmd_restaurant_system_20261015
+timestamp: '2026-10-15T01:26:04'
+evidence:
+  head: 9d395dc93c2f91122f0e04543a5db38c7b5a75ac
+  status_short: |
+    ?? .worktrees/
+  diff_stat: ''
+  out_of_scope: []
+checks: ''
+summary: 'Task restaurant_ticket_session_guidance_template_v3 completed. Patch created
+  at /u/someki1/multi-agent-shogun/.worktrees/restaurant/patches/restaurant_ticket_session_guidance_template_v3.patch.
+  Static checks passed: git diff --check (no whitespace errors), bash -n on shell
+  files (syntax valid), ast.parse on Python files (syntax valid). Report updated at
+  queue/reports/ashigaru4_report.yaml'

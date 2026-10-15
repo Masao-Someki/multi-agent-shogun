@@ -1,0 +1,56 @@
++ bats tests/unit/test_session_pool_context.bats
+1..10
+ok 1 T-POOL-001: helper — claude keeps context
+ok 2 T-POOL-002: helper — codex keeps context
+ok 3 T-POOL-003: helper — opencode (outside the pool) does not keep context
+ok 4 T-POOL-004: helper — no argument falls back to CLI_TYPE=claude
+ok 5 T-POOL-005: helper — no argument falls back to CLI_TYPE=codex
+ok 6 T-POOL-010: ashigaru1 on codex — nothing is sent, session kept
+ok 7 T-POOL-011: ashigaru1 on claude — nothing is sent, session kept
+ok 8 T-POOL-012: tanya on codex — nothing is sent, session kept
+ok 9 T-POOL-013: karo on codex — nothing is sent
+ok 10 T-POOL-014: metsuke on claude — nothing is sent, session kept
+exit=0
++ bats tests/unit/test_task_start.bats
+1..11
+ok 1 idle when no task and the pool is empty
+ok 2 start claims from the pool and prints the brief
+ok 3 waived gives exit 0 with start work and status in_progress
+ok 4 pending without --plan gives exit 10
+ok 5 --plan stores plan, sets plan_status submitted, and logs to inbox
+ok 6 --plan file that lacks a verify line gives exit 4
+ok 7 submitted again gives exit 11 and no second inbox line
+ok 8 approved prints approved: start work
+ok 9 wrong agent id gives exit 2
+ok 10 stray top-level key is dropped
+ok 11 syntax check runs bin-bash -n and bash -n on scripts/task_start.sh
+exit=0
++ bats tests/unit/test_task_finish.bats
+1..18
+ok 1 refusal: no active task (no file)
+ok 2 refusal: no active task (done task)
+ok 3 refusal: empty summary
+ok 4 refusal: wrong agent id
+ok 5 refusal: pool task claimed by another agent
+ok 6 refusal: plan not approved (pending)
+ok 7 refusal: plan not approved (submitted)
+ok 8 refusal: plan not approved (escalated)
+ok 9 refusal: missing checks file
+ok 10 refusal: no report or inbox logged on refusal
+ok 11 success: waived task
+ok 12 success: approved task
+ok 13 success: report parsing and key existence
+ok 14 success: next pool task claimed
+ok 15 success: pool task claim and idle
+ok 16 success: out_of_scope file
+ok 17 syntax: task_finish.sh bash
+ok 18 syntax: task_finish.sh bash (with error if any)
+exit=0
++ bats tests/unit/test_inbox_watcher_nudge_text.bats
+1..5
+ok 1 T-NUDGE-001: build_nudge_text — codex gets the full sentence with its own inbox
+ok 2 T-NUDGE-002: build_nudge_text — claude keeps the bare inboxN
+ok 3 T-NUDGE-003: build_nudge_text — opencode keeps the bare inboxN
+ok 4 T-NUDGE-004: real resolver — pane @agent_cli=codex wins and only the fake pane is queried
+ok 5 T-NUDGE-005: real resolver — unresolved CLI falls to the codex-safe long form
+exit=0

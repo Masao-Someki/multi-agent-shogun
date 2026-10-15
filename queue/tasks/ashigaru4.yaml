@@ -1,0 +1,60 @@
+task:
+  task_id: restaurant_ticket_session_guidance_template_v3
+  parent_cmd: cmd_restaurant_system_20261015
+  project: multi-agent-shogun
+  bloom_level: L3
+  pool: false
+  plan_gate: false
+  plan_status: waived
+  redo_of: restaurant_ticket_session_guidance_template_v2
+  files:
+  - lib/session_pool.sh
+  - lib/cli_adapter.sh
+  - scripts/inbox_watcher.sh
+  - scripts/session_start_hook.sh
+  - scripts/task_start.py
+  - scripts/task_finish.py
+  - instructions/common/protocol.md
+  description: |
+    # Task: Explain Ticket startup, recovery, handoff, and session handling in English
+
+    Working directory: /u/someki1/multi-agent-shogun/.worktrees/restaurant/ashigaru4, branch feature/restaurant-ashigaru4. First:
+      pwd && git branch --show-current
+      bats tests/unit/test_session_pool_context.bats tests/unit/test_task_start.bats tests/unit/test_task_finish.bats tests/unit/test_inbox_watcher_nudge_text.bats
+    (must pass before you start)
+
+    Read /u/someki1/multi-agent-shogun/.worktrees/restaurant/ashigaru4/.codex_context/restaurant_system_design.md's Restaurant vocabulary, English policy, and relevant task lifecycle section.
+    (If that file doesn't exist, STOP and report - don't proceed without
+    reading it.)
+
+    ## Context: what already exists, don't modify any of it
+    - `lib/session_pool.sh` -> `session_pool_preserves_context` and CLI-specific reuse policy; read only.
+    - `lib/cli_adapter.sh` -> CLI-specific reset mapping; read only.
+    - `scripts/inbox_watcher.sh` -> `send_context_reset` behavior.
+    - `scripts/session_start_hook.sh`, `scripts/task_start.py`, `scripts/task_finish.py`, and `instructions/common/protocol.md` -> startup, recovery, and handoff guidance.
+    - Preserve the existing scoped English edits in `scripts/session_start_hook.sh` and `instructions/common/protocol.md`.
+
+    ## Task
+    Finish translating user-facing startup, handoff, recovery, and session guidance into plain English with Ticket/Cook terminology, including startup and redo recovery instructions. Preserve current CLI-specific session reuse/reset behavior and recovery order exactly; do not introduce a universal `/new`, `/clear`, or reset. Keep internal names, machine IDs, paths, queue schemas, status transitions, and runtime behavior unchanged. The likely mistake is documenting a reset policy the CLI adapter does not use. Run the focused tests above before and after, plus `bash -n` on changed shell files and `python -m py_compile` on changed Python files.
+
+    This should require ZERO production code changes if the task is test-only
+    - if something doesn't work as expected, report exactly what broke and
+    why, don't patch around it or weaken the test to make it pass.
+
+    ## Scope limit
+    Use only `/u/someki1/multi-agent-shogun/.worktrees/restaurant/ashigaru4` on `feature/restaurant-ashigaru4`. Do not touch another worktree or queue file. Only the listed paths may be included in the patch; preserve all existing scoped English edits. Do not edit tests or generated instructions. Treat `lib/session_pool.sh` and `lib/cli_adapter.sh` as read-only context: no changes to their runtime behavior. Keep machine IDs, paths, schemas, status transitions, and session behavior unchanged.
+
+    ## Deliverable: a patch file, not direct changes to the shared branch
+      cd /u/someki1/multi-agent-shogun/.worktrees/restaurant/ashigaru4
+      git add -A
+      git diff --cached > /u/someki1/multi-agent-shogun/.worktrees/restaurant/patches/restaurant_ticket_session_guidance_template_v3.patch
+
+    Do not run git commit/push/reset, and don't touch any other worktree.
+
+    ## Self-check before reporting done
+      bats tests/unit/test_session_pool_context.bats tests/unit/test_task_start.bats tests/unit/test_task_finish.bats tests/unit/test_inbox_watcher_nudge_text.bats
+    Report the patch path and the full test output. If it fails, report the
+    failure and do NOT produce the patch - a "done" report must always include
+    the real command output, not a summary claim.
+  status: done
+  timestamp: '2026-10-15T01:20:00'
