@@ -268,7 +268,7 @@ should_throttle_nudge() {
 
 is_valid_cli_type() {
     case "${1:-}" in
-        claude|codex|copilot|kimi|opencode|antigravity|gemini|agy) return 0 ;;
+        claude|codex|copilot|kimi|opencode|antigravity|gemini|agy|vibe) return 0 ;;
         *) return 1 ;;
     esac
 }
