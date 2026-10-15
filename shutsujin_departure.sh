@@ -797,11 +797,6 @@ if [ "$_SHOGUN_ENABLED" = true ]; then
     tmux set-option -p -t shogun:main @agent_id "shogun"
     log_success "  └─ 将軍の本陣、構築完了"
 fi
-tmux set-option -g window-size latest
-tmux set-option -g aggressive-resize on
-
-# pane-base-index を取得（1 の環境ではペインは 1,2,... になる）
-PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 5.1: multiagent セッション作成（家老 + 足軽 + 軍師）
@@ -809,6 +804,12 @@ PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
 log_war "⚔️ 家老・足軽・軍師・目付・組頭・ターニャの陣を構築中（$((_ASHIGARU_COUNT + _COMMAND_LAYER_COUNT))名配備）..."
 
 # 最初のペイン作成
+# NOTE: this is the first tmux command guaranteed to run when the legacy
+# Shogun session is disabled (the default formation), so it is also what
+# starts the tmux server. `tmux set-option -g` (no -t session target) run
+# before ANY session exists fails with "no server running" instead of
+# auto-starting one - so the two global option calls below must come
+# AFTER this call succeeds, not before it.
 if ! tmux new-session -d -s multiagent -n "agents" 2>/dev/null; then
     echo ""
     echo "  ╔════════════════════════════════════════════════════════════╗"
@@ -824,6 +825,12 @@ if ! tmux new-session -d -s multiagent -n "agents" 2>/dev/null; then
     echo ""
     exit 1
 fi
+
+tmux set-option -g window-size latest
+tmux set-option -g aggressive-resize on
+
+# pane-base-index を取得（1 の環境ではペインは 1,2,... になる）
+PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
 
 # DISPLAY_MODE: shout (default) or silent (--silent flag)
 if [ "$SILENT_MODE" = true ]; then
