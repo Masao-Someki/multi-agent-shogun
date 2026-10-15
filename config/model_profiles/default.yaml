@@ -1,21 +1,17 @@
-# Human talks directly to Karo. Babel workers use the Codex Responses API.
+# Human talks directly to Karo. All ashigaru run Mistral's vibe CLI
+# (no persona/identity injection - see F008).
 cli:
   default: claude
   agents:
     karo: {type: codex, model: gpt-6-luna, effort: medium}
     gunshi: {type: claude, model: claude-fable-5-1, effort: high}
     metsuke: {type: claude, model: sonnet, effort: medium}
-    ashigaru1: {type: claude, model: sonnet, effort: low}
-    ashigaru2: &babel_worker
-      type: codex
-      model: shogun-worker
-      effort: medium
-      provider: babel
-      base_url_env: SHOGUN_VLLM_BASE_URL
-      base_url: http://127.0.0.1:8003/v1
-      api_key_env: SHOGUN_VLLM_API_KEY
-    ashigaru3: *babel_worker
-    ashigaru4: *babel_worker
+    ashigaru1: &vibe_worker
+      type: vibe
+      model: vibe-plan
+    ashigaru2: *vibe_worker
+    ashigaru3: *vibe_worker
+    ashigaru4: *vibe_worker
 formation:
   agents: [karo, ashigaru1, ashigaru2, ashigaru3, ashigaru4, metsuke, gunshi]
   ashigaru_count: 4

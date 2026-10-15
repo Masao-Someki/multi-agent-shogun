@@ -64,9 +64,12 @@ esac
             self.assertEqual(set(effective['cli']['agents']), set(roles))
 
     def shell(self, command, **environment):
-        env = dict(os.environ, CLI_ADAPTER_SETTINGS=str(PROFILE),
-                   AGENT_REGISTRY_SETTINGS=str(PROFILE),
-                   CLI_ADAPTER_SKIP_STARTUP_PROMPT="true", **environment)
+        defaults = {
+            'CLI_ADAPTER_SETTINGS': str(PROFILE),
+            'AGENT_REGISTRY_SETTINGS': str(PROFILE),
+            'CLI_ADAPTER_SKIP_STARTUP_PROMPT': 'true',
+        }
+        env = {**os.environ, **defaults, **environment}
         return subprocess.check_output(["bash", "-c", command], cwd=ROOT,
                                        env=env, text=True).strip()
 
@@ -85,35 +88,53 @@ esac
                                     'agent_registry_pane_for_agent karo 1'),
                          'multiagent:agents.1')
 
-    def test_workers_use_babel_responses_and_medium(self):
-        for agent in ['ashigaru2', 'ashigaru3', 'ashigaru4']:
+    def test_all_ashigaru_use_vibe_with_no_persona(self):
+        for agent in ['ashigaru1', 'ashigaru2', 'ashigaru3', 'ashigaru4']:
             with self.subTest(agent=agent):
-                args = self.cli(agent, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:32424/v1')
-                self.assertEqual(args[0], 'codex')
-                self.assertIn('shogun-worker', args)
-                self.assertIn('model_provider="babel"', args)
-                self.assertIn('model_providers.babel.wire_api="responses"', args)
-                self.assertIn('model_providers.babel.base_url="http://127.0.0.1:32424/v1"', args)
-                self.assertIn('model_providers.babel.env_key="SHOGUN_VLLM_API_KEY"', args)
-                self.assertIn('model_reasoning_effort="medium"', args)
-                self.assertIn('model_context_window=131072', args)
-                self.assertIn('model_auto_compact_token_limit=110000', args)
-                self.assertIn('web_search=live', args)
+                args = self.cli(agent)
+                self.assertEqual(args, ['vibe', '--agent', 'plan', '--auto-approve', '--trust'])
+                instruction_file = self.shell(
+                    f'source lib/cli_adapter.sh; get_instruction_file {agent} vibe'
+                )
+                self.assertEqual(instruction_file, '')
 
     def test_resume_pool_is_provider_and_endpoint_scoped(self):
-        command = ('source lib/cli_adapter.sh; source lib/session_pool.sh; '
-                   'session_pool_path ashigaru2 codex')
-        first = self.shell(command, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:8003/v1')
-        second = self.shell(command, SHOGUN_VLLM_BASE_URL='http://127.0.0.1:32424/v1')
-        self.assertNotEqual(first, second)
-        commercial = self.shell('source lib/cli_adapter.sh; source lib/session_pool.sh; '
-                                'session_pool_path metsuke codex')
-        self.assertTrue(commercial.endswith('/metsuke.codex.id'))
-        self.assertFalse(first.endswith('/ashigaru2.codex.id'))
-
-    def test_ashigaru1_is_claude_sonnet_low(self):
-        ashigaru1 = self.cli('ashigaru1')
-        self.assertEqual(ashigaru1[:5], ['claude', '--model', 'sonnet', '--effort', 'low'])
+        # session_pool_path's endpoint-scoping only applies to an agent
+        # whose config declares base_url_env - none of the default
+        # profile's agents do anymore (no babel/vLLM worker), so this
+        # exercises the library function directly via a synthetic agent
+        # rather than depending on the current default formation's shape.
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.yaml', delete=False
+        ) as f:
+            yaml.safe_dump({
+                'cli': {'agents': {
+                    'scoped_worker': {
+                        'type': 'codex',
+                        'provider': 'babel',
+                        'base_url_env': 'SHOGUN_VLLM_BASE_URL',
+                    },
+                    'metsuke': {'type': 'codex'},
+                }}
+            }, f)
+            synthetic_settings = f.name
+        try:
+            command = ('source lib/cli_adapter.sh; source lib/session_pool.sh; '
+                       'session_pool_path scoped_worker codex')
+            first = self.shell(command, CLI_ADAPTER_SETTINGS=synthetic_settings,
+                               SHOGUN_VLLM_BASE_URL='http://127.0.0.1:8003/v1')
+            second = self.shell(command, CLI_ADAPTER_SETTINGS=synthetic_settings,
+                                SHOGUN_VLLM_BASE_URL='http://127.0.0.1:32424/v1')
+            self.assertNotEqual(first, second)
+            commercial = self.shell(
+                'source lib/cli_adapter.sh; source lib/session_pool.sh; '
+                'session_pool_path metsuke codex',
+                CLI_ADAPTER_SETTINGS=synthetic_settings,
+            )
+            self.assertTrue(commercial.endswith('/metsuke.codex.id'))
+            self.assertFalse(first.endswith('/scoped_worker.codex.id'))
+        finally:
+            os.unlink(synthetic_settings)
 
     def test_commercial_role_models_and_efforts(self):
         karo = self.cli('karo')
